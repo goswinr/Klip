@@ -1,5 +1,5 @@
 
-![Logo](https://raw.githubusercontent.com/goswinr/Klip/main/Docs/logo128.png)
+![Logo](https://raw.githubusercontent.com/goswinr/Klip/main/Doc/logo128.png)
 
 # Klip
 
