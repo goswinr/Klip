@@ -1,0 +1,69 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NeutralLanguage>en</NeutralLanguage>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>    <!--to only have the english resources for FSharp.Core-->
+
+
+    <RootNamespace>Klip</RootNamespace>
+    <AssemblyName>Klip</AssemblyName>
+    <AssemblyTitle>Klip</AssemblyTitle>
+    <Title>Klip</Title>
+    <Product>Klip</Product>
+    <PackageId>Klip</PackageId>
+    <!-- <Version>0.0.0</Version>  done by Ionide.KeepAChangelog.Tasks-->
+    <Authors>Angus Johnson, port by Goswin Rothenthal</Authors>
+    <Copyright>Angus Johnson, port by Goswin Rothenthal 2026</Copyright>
+
+    <Description>Fast and robust polygon clipping. A port of Clipper2 to F#</Description>
+    <PackageDescription>Fast and robust polygon clipping. A port of Clipper2 to F#</PackageDescription><!--used on nuget.org-->
+    <WarningLevel>5</WarningLevel><!-- WarningLevel 3 is default, see https://github.com/dsyme/fsharp-presentations/blob/master/design-notes/off-by-default-warnings.md -->
+    <OtherFlags>$(OtherFlags) --warnon:3390</OtherFlags> <!-- warnon:3390 is to verify xml docstrings https://devblogs.microsoft.com/dotnet/announcing-f-5/#improved-compiler-analysis-for-library-authors -->
+    <OtherFlags>$(OtherFlags) --warnon:1182</OtherFlags> <!-- 1182: warn on unused variables -->
+
+    <PackageTags>fsharp;geometry;fable;fable-library;clipper2</PackageTags>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageIcon>logo128.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <DebugType>embedded</DebugType>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <RepositoryUrl>https://github.com/goswinr/Klip</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/goswinr/Klip</PackageProjectUrl>
+    <ChangelogFile>./CHANGELOG.md</ChangelogFile>
+  </PropertyGroup>
+
+
+  <ItemGroup>
+    <!-- Update FSharp.Core, otherwise the minimum version would be forced by the SDK used for building it. This would be needlessly too high-->
+    <PackageReference Update="FSharp.Core" Version="6.0.7" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.200" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />
+    <PackageReference Include="Ionide.KeepAChangelog.Tasks" Version="0.3.3" PrivateAssets="all" />
+
+    <None Include="./README.md" Pack="true" PackagePath="" />
+    <None Include="./Doc/logo128.png" Pack="true" PackagePath="" />  <!--PackagePath = "" makes the file available to nuget pack tool-->
+    <Content Include="*.fsproj; **/*.fs; **/*.fsi" PackagePath="fable/" />
+
+    <PackageReference Include="Fable.Core" Version="5.0.0" Condition="$(DefineConstants.Contains('FABLE_COMPILER'))" />
+
+    <Compile Include="Src/Core.fs" />
+    <Compile Include="Src/Engine1.fs" />
+    <Compile Include="Src/Engine2.fs" />
+    <Compile Include="Src/Klip.fs" />
+  </ItemGroup>
+
+
+  <!-- for version checks in github tag based builds -->
+  <Target Name="WriteChangelogVersion" AfterTargets="AfterBuild">
+    <WriteLinesToFile File="bin/ChangelogVersion.txt" Lines="@(CurrentReleaseChangelog)" Overwrite="true" ContinueOnError="false" />
+  </Target>
+</Project>
+
+

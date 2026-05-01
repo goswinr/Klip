@@ -1,0 +1,24 @@
+{
+  "scripts": {
+    "buildPerf2": "dotnet fable ../Klip.fsproj --outDir ./_jsPerf --lang js --run vite build --config vite.configPerf.ts",
+    "buildPerf": "dotnet run --project ../../../Fable/src/Fable.Cli/Fable.Cli.fsproj -- ../Klip.fsproj --noCache --outDir ./_jsPerf --lang js --run vite build --config vite.configPerf.ts",
+    "buildJS": "dotnet fable ../Klip.fsproj --outDir ./_js --lang js --run vite build --config vite.config.ts",
+    "buildTS": "dotnet fable ../Klip.fsproj --outDir ./_ts --lang ts --run tsc",
+    "tsc": "tsc",
+    "vite": "vite build",
+    "benchSingle": "node ./benchSingle/bench.mjs",
+    "test": "vitest --run",
+    "test:watch": "vitest --watch",
+    "bench": "vitest bench --run"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "clipper2-ts": "^2.0.1-15",
+    "clipper2-wasm": "^0.2.1",
+    "terser": "^5.46.2",
+    "tinybench": "^5.1.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10",
+    "vitest": "^4.0.10"
+  }
+}

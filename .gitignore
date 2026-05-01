@@ -1,0 +1,12 @@
+bin/
+obj/
+node_modules/
+fable_modules/
+_ts/
+_js/
+_jsPerf/
+_tsc/
+_dist/
+_distPerf/
+
+*.3dm.rhl

@@ -1,0 +1,24 @@
+{
+  "include": ["./_ts/**/*.ts"],
+  "compilerOptions": {
+    // Emit .d.ts declaration files alongside .js
+    "declaration": true,
+    // "emitDeclarationOnly": true,
+
+    "outDir": "./_tsc",
+    "rootDir": "./_ts",
+    "module": "ESNext",
+    "target": "ESNext",
+    "moduleResolution": "bundler",
+
+    // Fable generates imports with .ts extensions (e.g. import "./Core.ts").
+    // This rewrites them to .js in the emitted output so the JS files resolve correctly.
+    "rewriteRelativeImportExtensions": true,
+    // "allowImportingTsExtensions": true,
+
+    // Fable-generated TypeScript should not have errors, so strict mode by default
+    "strict": true,
+    // Don't include any @types packages by default
+    "types": []
+  }
+}
