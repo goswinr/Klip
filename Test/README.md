@@ -54,7 +54,7 @@ excludes `_ts/fable_modules`.
 ## Benchmarks
 
 `bench/` ports the applicable benchmarks from
-[clipper2-ts/bench/](../../clipper2-ts/bench/) (skipping offset, inflate, and
+[clipper2-ts/bench/](https://github.com/countertype/clipper2-ts/tree/main/bench) (skipping offset, inflate, and
 triangulation, which Klip doesn't expose). Each `describe` group times the same
 operation against:
 

@@ -12,7 +12,7 @@
 
 Fast and robust polygon clipping.
 
-A partial F# port of [Clipper2](https://github.com/AngusJ/Clipper2)
+A partial F# port of [Clipper2](https://github.com/AngusJohnson/Clipper2)
 The port is derived from the [clipper2-ts](https://github.com/countertype/clipper2-ts)
 TypeScript port rather than the original C#.
 
@@ -34,7 +34,7 @@ on a single coordinate type:
 - No offsetting / inflation, line clipping, rect clipping, Minkowski sums,
   triangulation, or arbitrary-precision decimal paths
 
-The public surface is in [`Src/Klip.fs`](Src/Klip.fs) and includes the following key types and operations:
+The public surface is in [`Src/Klip.fs`](https://github.com/goswinr/Klip/blob/main/Src/Klip.fs) and includes the following key types and operations:
 
 ### Core Types
 
