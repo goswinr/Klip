@@ -10,11 +10,18 @@ while the last digits indicate the release number of this F# port.
 
 ## [Unreleased]
 
+## [2.0.1152] - 2026-05-10
+
+### Changed
+- MAJOR API refactor  and renaming
+
+### Added
+- Testa and benchmarks
 
 
 ## [2.0.1151] - 2026-05-01
 ### Changed
 - First release of Port of Clipper2 , ported and adapted from clipper2-ts version 2.0.1-15 to F#
 
-
+[2.0.1152]: https://github.com/goswinr/Klip/compare/2.0.1151...2.0.1152
 [2.0.1151]: https://github.com/goswinr/Klip/releases/tag/2.0.1151

@@ -12,11 +12,11 @@
 
 Fast and robust polygon clipping.
 
-A partial F# port of [Clipper2](https://github.com/AngusJohnson/Clipper2)
-The port is derived from the [clipper2-ts](https://github.com/countertype/clipper2-ts)
+A partial F# port of [Clipper2](https://github.com/AngusJohnson/Clipper2).
+This port is derived from the [clipper2-ts](https://github.com/countertype/clipper2-ts)
 TypeScript port rather than the original C#.
 
-All tests pass. And its even faster. see [Test README](Test/README.md).
+All original tests pass. There are also some new ones. And it's even a bit faster than `clipper2-ts`. See [bench README](https://github.com/goswinr/Klip/blob/main/Test/bench/README.md).
 
 ## Why another port?
 
@@ -29,36 +29,76 @@ This is a **partial** port - only what's needed for polygon boolean operations
 on a single coordinate type:
 
 - Polygon boolean ops (intersection, union, difference, XOR) and PolyTree output
-- 64-bit integer coordinates only, but stored as `float` (64-bit) so the output is
-  Fable-friendly (no `bigint` in hot paths, no boxed records)
+
+- like in `clipper2-ts` 64-bit integer coordinates are represented by `float` (64-bit) so the output is
+  Fable-friendly (no JS `bigint`) .
+
+- No scaling of input coordinates, like PathD does in `clipper2-ts` to support floating-point input.
+Instead, users can choose to scale their coordinates before passing them to Klip if they need more precision.
+
 - No offsetting / inflation, line clipping, rect clipping, Minkowski sums,
   triangulation, or arbitrary-precision decimal paths
 
-The public surface is in [`Src/Klip.fs`](https://github.com/goswinr/Klip/blob/main/Src/Klip.fs) and includes the following key types and operations:
+The main convenience API is in [`Src/Klip.fs`](https://github.com/goswinr/Klip/blob/main/Src/Klip.fs), in the `Klip.Clipper` module. It wraps `Clipper64` for the common polygon boolean operations while keeping the lower-level engine available for specialized cases.
 
 ### Core Types
 
-- `Path64`: Contains a sequence of vertices defining a single contour. X, Y, and Z ordinates are stored in parallel float buffers.
-- `Paths64`: A list of `Path64` contours, representing multiple paths (e.g. an outer polygon and its holes).
-- `PolyTree64`: A specialized data structure used for returning the results of clipping operations. Unlike `Paths64`, which is a flat list, `PolyTree64` preserves the parent-child relationships between contours (such as a hole being a child of an outer contour).
-- `ZCallback64`: A callback function that allows you to specify custom logic for calculating the Z-coordinate when two edges intersect and a new vertex is created.
+Original Documentation: https://www.angusj.com/clipper2
 
-### Fill Rules
+All types are still named like the original C# version, where the `..64` suffix indicated 64-bit integers. In Klip the XY coordinates are stored as `float`, and there is no `..D` suffix API that scales floating-point paths to integer paths.
 
-Fill rules define which regions of a complex polygon are considered "filled":
-- `EvenOdd`: A point is inside if a ray from it crosses an odd number of edges.
-- `NonZero`: A point is inside if the winding number is non-zero (default and most common).
-- `Positive` / `Negative`: Restricts filling by winding direction.
+### New Generic `'Z` Metadata
+`'Z` is the generic type parameter for user-defined metadata that can be attached to vertices. It is optional and defaults to `unit` if not used.
+In the original Clipper2 the optional Z value is always a `int64` but in Klip it can be any type.
+
+
+- `Path64<'Z>`: A single contour. X and Y coordinates are stored in a flat interleaved `ResizeArray<float>` as `x0, y0, x1, y1, ...`.
+- `Paths64<'Z>`: A `ResizeArray<Path64<'Z>>`, representing multiple contours such as an outer polygon and its holes.
+- `PolyTree64<'Z>`: A tree output structure that preserves parent-child contour relationships, such as holes inside outer contours.
+- `ZCallback64<'Z>`: A callback for assigning user-defined `'Z` metadata to new vertices created at edge intersections. `'Z` values are metadata, not 3D coordinates.
+
+If you do not use `'Z` metadata, use the default no-Z helpers such as `Path64.createFrom` and `Paths64.createSingle`; these create `Path64<unit>` and `Paths64<unit>` values.
+
+
 
 ### Boolean Operations
 
-- `intersect(subject, clip, fillRule)`: Returns the intersection of the subject and clip paths.
-- `union(subject, clip, fillRule)`: Returns the union of subject and clip paths.
-- `unionSelf(subject, fillRule)`: Resolves self-intersections within a single subject path.
-- `difference(subject, clip, fillRule)`: Returns the regions of the subject that are NOT inside the clip region.
-- `xor(subject, clip, fillRule)`: Returns the regions of subject or clip that are not in both.
-- `booleanOpWithPolyTree(clipType, subject, clip, polyTree, fillRule)`: Computes the boolean operation and outputs the result into a `PolyTree64` to preserve the topological hierarchy.
-- `polyTreeToPaths64(polyTree)`: Flattens a `PolyTree64` back into a `Paths64` list.
+
+- `Clipper.intersect clip subject`: Returns the intersection of the subject and clip paths.
+- `Clipper.union clip subject`: Returns the union of subject and clip paths.
+- `Clipper.unionSelf subject`: Resolves self-intersections within a single subject path.
+- `Clipper.difference clip subject`: Returns the regions of the subject that are not inside the clip region.
+- `Clipper.xor clip subject`: Returns the regions of subject or clip that are not in both.
+
+Each wrapper also has a `Z` variant that takes a `ZCallback64<'Z>` as the first argument:
+
+- `Clipper.intersectZ zCallback clip subject`
+- `Clipper.unionZ zCallback clip subject`
+- `Clipper.unionSelfZ zCallback subject`
+- `Clipper.differenceZ zCallback clip subject`
+- `Clipper.xorZ zCallback clip subject`
+
+Use the general functions when you need a custom `ClipType`, `FillRule`, `ZCallback64`, or `PolyTree64` output:
+
+- `Clipper.booleanOp (clipType, subject, clip, fillRule, zCallback)`: Performs a boolean operation and returns `Paths64<'Z>`.
+- `Clipper.booleanOpWithPolyTree (clipType, subject, clip, polyTree, fillRule, zCallback)`: Writes the result into a `PolyTree64<'Z>` so hierarchy is preserved.
+- `Clipper.polyTreeToPaths64 polyTree`: Flattens a `PolyTree64<'Z>` back into `Paths64<'Z>`.
+
+```fsharp
+open Klip
+
+let subject =
+    Paths64.createSingle [ 0.0; 0.0; 10.0; 0.0; 10.0; 10.0; 0.0; 10.0 ]
+
+let clip =
+    Paths64.createSingle [ 5.0; 5.0; 15.0; 5.0; 15.0; 15.0; 5.0; 15.0 ]
+
+let union = Clipper.union clip subject
+let intersection = Clipper.intersect clip subject
+
+let nonZeroDifference =
+    Clipper.booleanOp (ClipType.Difference, subject, clip, FillRule.NonZero, None)
+```
 
 
 ## Building
@@ -72,25 +112,18 @@ for  JS
 ```bash
 cd Test
 npm install
-npm run buildTS   # F# → TypeScript via Fable, then tsc
+npm run build     # F# → JavaScript via Fable, then vite build
+npm run buildts   # F# → TypeScript via Fable, then tsc and vite build
 npm test          # vitest --run
 ```
 
-The compiled TypeScript ends up in `Klip/Test/_ts/Src/` and is what the test
+The compiled TypeScript ends up in `_dist/Klip.mjs` and is what the test
 suite imports.
 
-## Differences from clipper2-ts
+## Performance
 
-- `Path64` is a class with **parallel** `xs[] / ys[] / zs[]` buffers, not an
-  array of `{x, y, z}` objects. This is more cache-friendly under Fable's JS
-  output and avoids per-point object allocations.
-- Fewer features (see Scope above).
+On .NET ist about the same as CLipper2 C#, but with more allocations.
+In JavaScript it's about 15% faster than `clipper2-ts`, but 40% slower than `clipper2-wasm`.
 
-
-# Performance
-Klip when compiled to JavaScript is about 30% faster than clipper2-ts.
-Tested on union operations with 100 adjacent polygons.
-
-Klip doesn't have its own Point64 object but just uses the parallel `xs[] / ys[] / zs[]` buffers in `Path64`.
-The internal Engine objects have just x, y and z properties instead of Point64 objects, and the scanline engine operates on these directly.
-So in total fewer JS objects are allocated.
+See [`Test/bench/README.md`](https://github.com/goswinr/Klip/blob/main/Test/bench/README.md)
+and [`Test/README.md`](https://github.com/goswinr/Klip/blob/main/Test/README.md).

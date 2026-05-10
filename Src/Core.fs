@@ -18,6 +18,7 @@ type OPT = Runtime.InteropServices.OptionalAttribute
 type DEF = Runtime.InteropServices.DefaultParameterValueAttribute
 
 
+
 [<AutoOpen>]
 module internal Operators =
 
@@ -27,18 +28,12 @@ module internal Operators =
     let inline ( =!= ) (x: obj) (y: obj) : bool =
         not (Object.ReferenceEquals(x, y))
 
-    let inline jsRound (x: float) : float =
-        #if FABLE_COMPILER
-            Fable.Core.JsInterop.emitJsExpr x "Math.round($0)"
-        #else
-            Math.Round x
-        #endif
-
+//#region Null module
 
 module internal Null =
 
     let inline isNull' (x: obj) : bool =
-        #if FABLE_COMPILER
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
             Fable.Core.JsInterop.emitJsExpr x "$0 === null"
         #else
             x === null
@@ -46,7 +41,7 @@ module internal Null =
 
 
     let inline isNotNull (x: obj) : bool =
-        #if FABLE_COMPILER
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
             Fable.Core.JsInterop.emitJsExpr x "$0 !== null"
         #else
             x =!= null
@@ -54,17 +49,24 @@ module internal Null =
 
     /// Needed for cheating the F# compiler to set F# records to null.
     let inline null'() : 'T =
-        Unchecked.defaultof<'T> // needed for Fable TS build
-        // #if FABLE_COMPILER
-        //     Fable.Core.JsInterop.emitJsExpr () "null" // to avoid emitting defaultOf() call, but  this seems irrelevant to performance.
-        // #else
-        //     Unchecked.defaultof<'T>
-        // #endif
+        #if FABLE_COMPILER_JAVASCRIPT // but not for FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsExpr () "null" // to avoid emitting defaultOf() call, but  this seems irrelevant to performance.
+        #else // including FABLE_COMPILER_TYPESCRIPT
+            Unchecked.defaultof<'T>
+        #endif
+
+    let inline opt (x: 'T) : option<'T> =
+        if isNull' x then None else Some x
 
 
-    let [<Literal>] DEFZ =
-        null
+    let inline DEFZ() : 'T =
+        #if FABLE_COMPILER_JAVASCRIPT // but not for FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsExpr () "null" // to avoid emitting defaultOf() call, but  this seems irrelevant to performance.
+        #else // including FABLE_COMPILER_TYPESCRIPT
+            Unchecked.defaultof<'T>
+        #endif
 
+//#region Rarr module
 
 [<RequireQualifiedAccess>]
 module internal Rarr =
@@ -72,63 +74,156 @@ module internal Rarr =
     /// this is more efficient than ResizeArray.Clear() in Fable,
     /// which emits .splice(0)
     let inline clear (arr: ResizeArray<'T>) : unit =
-        #if FABLE_COMPILER
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
             Fable.Core.JsInterop.emitJsStatement arr "$0.length = 0"
         #else
             arr.Clear()
         #endif
 
     let inline pop (arr: ResizeArray<'T>) : unit =
-        #if FABLE_COMPILER
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
             Fable.Core.JsInterop.emitJsStatement arr "$0.pop()"
         #else
             arr.RemoveAt(arr.Count - 1)
         #endif
 
+    let inline map (mapping: 'T -> 'U) (resizeArray: ResizeArray<'T>) : ResizeArray<'U> =
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsExpr (resizeArray, mapping) "$0.map($1)" // this works only because a ResizeArray is never a TypedArray in JS
+        #else
+            resizeArray.ConvertAll (System.Converter mapping) // would work in Fable too
+        #endif
+
+    let inline iter (mapping: 'T -> unit) (resizeArray: ResizeArray<'T>) : unit =
+        for i = 0 to resizeArray.Count - 1 do
+            mapping resizeArray[i]
+
+
+
+
+//#endregion
+//#region type Path64
 
 
 /// Contains a sequence of vertices defining a single contour.
-/// The path stores X, Y ordinates in three parallel float buffers.
+/// The path stores X, Y coordinates in a single flat ResizeArray of floats,
+/// interleaved as x0, y0, x1, y1, ...
+///
+/// Occasionally users may wish to assign user-defined data to vertices,
+/// For this you may pass in an optional ResizeArray of objects as Z values to the constructor,
+/// and these will be retained if these vertices are returned in clipping solutions.
+/// Do not confuse the additional Z member with 3D coordinates.
+/// If an optional Z ResizeArray is provided, it must have the same number of elements as the vertex count.
+///
+/// If no Z values are needed, the type parameter 'Z can be left as unit.
+/// Use the static Path64.create... methods to create Path64 instances, which will ensure the correct type is used for Z values.
+/// When a Path64 is created without Z values, it's type will be Path64<unit>, and the Zs member will be None.
 [<AllowNullLiteral>]
-type Path64( xs:ResizeArray<float>, ys:ResizeArray<float>, zs:ResizeArray<obj>) =
+type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
+
+    do
+        if xys.Count % 2 <> 0 then
+            raise (ArgumentException $"Path64 constructor: coords.Count ({xys.Count}) must be even")
+        match zs with
+        |Some zs ->
+            let pointCount = xys.Count / 2
+            if zs.Count <> pointCount then
+                raise (ArgumentException $"Path64 constructor: zs.Count ({zs.Count}) <> point count ({pointCount})")
+        |None -> ()
 
 
-    new() =
-        Path64(
-            ResizeArray<float>(),
-            ResizeArray<float>(),
-            ResizeArray<obj>())
+
+    /// Gets the flat interleaved coordinate buffer of the path.
+    member _.XYs : ResizeArray<float> =
+        xys
+
+    /// The Z values only contain optional user-defined data, can be any object.
+    /// Don't confuse the additional Z member with 3D coordinates.
+    /// This is None if no Z values were provided in the constructor,
+    /// otherwise it is Some with the ResizeArray of objects.
+    member _.Zs : option<ResizeArray<'Z>> =
+        zs
+
+    /// Returns true if this path has Z values, false if not.
+    member _.HasZs : bool =
+        zs.IsSome
 
 
-    /// Gets the X ordinates of the path.
-    member _.Xs : ResizeArray<float> = xs
-    /// Gets the Y ordinates of the path.
-    member _.Ys : ResizeArray<float> = ys
-    /// Gets the Z coordinates of the path.
-    member _.Zs : ResizeArray<obj> = zs
+    // /// Scales all points in the path by the given factor.
+    // /// This is a mutating operation that modifies the path in place.
+    // member _.Scale(factor: float) : unit =
+    //     let coords = xys
+    //     for i = 0 to coords.Count - 1 do
+    //         coords[i] <- jsRound(coords[i] * factor)
 
-    /// Gets the number of vertices in the path.
-    member _.Count : int =
-        xs.Count
 
-    /// Adds a new vertex to the path.
-    member this.Add(x: float, y: float, z: obj) : unit =
-        xs.Add x
-        ys.Add y
-        zs.Add z
+    /// Gets the number of points in the path.
+    /// This is half the length of the XYs ResizeArray, since X and Y are interleaved.
+    member _.PointCount : int =
+        xys.Count / 2
 
-    /// Clears all vertices from the path.
-    member _.Clear() : unit =
-        xs |> Rarr.clear
-        ys |> Rarr.clear
-        zs |> Rarr.clear
 
+    /// Gets the X ordinate at the given point index.
+    /// Accesses the internal XYs ResizeArray via xys[index * 2].
+    member _.GetX(index: int) : float =
+        xys.[index * 2]
+
+    /// Gets the Y ordinate at the given point index.
+    /// Accesses the internal XYs ResizeArray via xys[index * 2 + 1].
+    member _.GetY(index: int) : float =
+        xys.[index * 2 + 1]
+
+    /// Gets the Z value at the given point index.
+    /// This is only valid if Z values were provided in the constructor, otherwise it throws an exception.
+    member _.GetZ(index: int) : 'Z =
+        match zs with
+        | Some zs -> zs.[index]
+        | None -> raise (InvalidOperationException "Path64.GetZ: This path does not have Z values.")
+
+    /// Computes the total length of the path,
+    /// which is the sum of the distances between consecutive points.
+    member _.PathLength : float =
+        let cnt = xys.Count
+        if cnt < 4 then
+            0.0
+        else
+            let mutable total = 0.0
+            let mutable prevX = xys[0]
+            let mutable prevY = xys[1]
+            let mutable i = 2
+            while i <= xys.Count - 2 do
+                let x = xys[i]
+                let y = xys[i + 1]
+                i <- i + 2
+                let dx = x - prevX
+                let dy = y - prevY
+                total <- total + sqrt(dx * dx + dy * dy)
+                prevX <- x
+                prevY <- y
+            total
+
+    /// Adds a new point and a Z value to the path.
+    member internal _.Add(x: float, y: float, z: 'Z) : unit =
+        xys.Add x
+        xys.Add y
+        match zs with
+        | Some zs -> zs.Add z
+        | None -> ()
+
+    /// Clears all points and Z values from the path.
+    member internal _.Clear() : unit =
+        xys |> Rarr.clear
+        match zs with
+        | Some zs -> zs |> Rarr.clear
+        | None -> ()
 
 
 /// Contains a sequence of `Path64` structures, representing multiple contours.
 /// Several paths make up a Clipper subject, e.g. an outer polygon with holes.
-type Paths64 =
-    ResizeArray<Path64>
+/// This is just a type alias for a ResizeArray of Path64.
+type Paths64<'Z> =
+    ResizeArray<Path64<'Z>>
+
 
 
 type internal PointInPolygonResult =
@@ -136,10 +231,30 @@ type internal PointInPolygonResult =
     | IsInside = 1
     | IsOutside = 2
 
-
+//#endregion
 //#region module Geo
 
 module internal Geo =
+
+    /// For internal use only, always return 'Z even when it should be unit
+    let inline emptyPath64<'Z> (hasZ:bool) : Path64<'Z> =
+        if hasZ then
+            Path64<'Z>(ResizeArray<float>(), Some (ResizeArray<'Z>()))
+        else
+            Path64<'Z>(ResizeArray<float>(), None)
+
+
+    /// Rounds a float to the nearest integer, using
+    /// `Math.round` in Fable and `Math.Round` in .NET.
+    ///  While JS does Round-half-towards-positive-infinity.
+    /// .NET does Rounds-half-to-even, (Banker's Rounding).
+    let inline jsRound (x: float) : float =
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsExpr x "Math.round($0)"
+        #else
+            Math.Round x
+        #endif
+
 
     let inline crossProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
         let a = pt2X - pt1X
@@ -198,18 +313,19 @@ module internal Geo =
             0
 
     // https://en.wikipedia.org/wiki/Shoelace_formula
-    let area (path: Path64) : float =
-        let cnt = path.Count
+    let area (path: Path64<'Z>) : float =
+        let cnt = path.PointCount
         if cnt < 3 then 0.0
         else
-            let xs = path.Xs
-            let ys = path.Ys
+            let coords = path.XYs
             let mutable total = 0.0
-            let mutable prevX = xs[cnt - 1]
-            let mutable prevY = ys[cnt - 1]
+            let mutable prevCoord = (cnt - 1) * 2
+            let mutable prevX = coords[prevCoord]
+            let mutable prevY = coords[prevCoord + 1]
             for i = 0 to cnt - 1 do
-                let x = xs[i]
-                let y = ys[i]
+                let coord = i * 2
+                let x = coords[coord]
+                let y = coords[coord + 1]
                 total <- total + (prevY + y) * (prevX - x)
                 prevX <- x
                 prevY <- y
@@ -218,18 +334,21 @@ module internal Geo =
 
 
 
-    let pointInPolygon (ptX: float, ptY: float, polygon: Path64) : PointInPolygonResult =
-        let len = polygon.Count
+    let pointInPolygon (ptX: float, ptY: float, polygon: Path64<'Z>) : PointInPolygonResult =
+        let len = polygon.PointCount
         if len < 3 then
             PointInPolygonResult.IsOutside
         else
+            let coords = polygon.XYs
+            let inline getX i = coords[i * 2]
+            let inline getY i = coords[i * 2 + 1]
             let mutable start = 0
-            while start < len && polygon.Ys[start] = ptY do
+            while start < len && getY start = ptY do
                 start <- start + 1
             if start = len then
                 PointInPolygonResult.IsOutside
             else
-                let mutable isAbove = polygon.Ys[start] < ptY
+                let mutable isAbove = getY start < ptY
                 let startingAbove = isAbove
                 let mutable valToggle = 0
                 let mutable i = start + 1
@@ -237,9 +356,6 @@ module internal Geo =
                 let mutable loopOn = true
                 let mutable hasResult = false
                 let mutable result = PointInPolygonResult.IsOutside
-
-                let xs = polygon.Xs
-                let ys = polygon.Ys
 
                 while loopOn do
                     let mutable skip = false
@@ -254,18 +370,18 @@ module internal Geo =
 
                     if loopOn && not skip then
                         if isAbove then
-                            while i < endIdx && polygon.Ys[i] < ptY do i <- i + 1
+                            while i < endIdx && getY i < ptY do i <- i + 1
                         else
-                            while i < endIdx && polygon.Ys[i] > ptY do i <- i + 1
+                            while i < endIdx && getY i > ptY do i <- i + 1
 
                         if i = endIdx then
                             skip <- true  // continue — wrap around
                         else
-                            let currX = xs[i]
-                            let currY = ys[i]
+                            let currX = getX i
+                            let currY = getY i
                             let prevIdx = if i > 0 then i - 1 else len - 1
-                            let prevX = xs[prevIdx]
-                            let prevY = ys[prevIdx]
+                            let prevX = getX prevIdx
+                            let prevY = getY prevIdx
 
                             if currY = ptY then
                                 if currX = ptX ||
@@ -309,9 +425,9 @@ module internal Geo =
                         i <- 0
                     let cps =
                         if i = 0 then
-                            crossProductSign (xs[len - 1], ys[len - 1], xs[0], ys[0], ptX, ptY)
+                            crossProductSign (getX (len - 1), getY (len - 1), getX 0, getY 0, ptX, ptY)
                         else
-                            crossProductSign (xs[i - 1], ys[i - 1], xs[i], ys[i], ptX, ptY)
+                            crossProductSign (getX (i - 1), getY (i - 1), getX i, getY i, ptX, ptY)
                     if cps = 0 then
                         PointInPolygonResult.IsOn
                     else
@@ -322,17 +438,17 @@ module internal Geo =
                         else
                             PointInPolygonResult.IsInside
 
-    let path2ContainsPath1 (path1: Path64) (path2: Path64) : bool =
+    let path2ContainsPath1 (path1: Path64<'Z>) (path2: Path64<'Z>) : bool =
         // We need to make some accommodation for rounding errors so we don't
         // jump if the first vertex is found outside.
         let mutable pip = PointInPolygonResult.IsOn
         let mutable earlyDone = false
         let mutable earlyResult = false
         let mutable i = 0
-        let xs = path1.Xs
-        let ys = path1.Ys
-        while not earlyDone && i < path1.Count do
-            match pointInPolygon (xs[i], ys[i], path2) with
+        let coords = path1.XYs
+        while not earlyDone && i < path1.PointCount do
+            let coord = i * 2
+            match pointInPolygon (coords[coord], coords[coord + 1], path2) with
             | PointInPolygonResult.IsOutside ->
                 if pip = PointInPolygonResult.IsOutside then
                     earlyResult <- false
@@ -353,18 +469,18 @@ module internal Geo =
         else
             // since path1's location is still equivocal, check its midpoint
             // let getBounds (path: Path64) : Rect64 = // inlined here:
-            if path1.Count = 0 then // can this happen here?
+            if path1.PointCount = 0 then // can this happen here?
                 false
             else
-                let xs = path1.Xs
-                let ys = path1.Ys
+                let coords = path1.XYs
                 let mutable left = Double.MaxValue
                 let mutable top = Double.MaxValue
                 let mutable right = Double.MinValue
                 let mutable bottom = Double.MinValue
-                for i = 0 to path1.Count - 1 do
-                    let x = xs[i]
-                    let y = ys[i]
+                for i = 0 to path1.PointCount - 1 do
+                    let coord = i * 2
+                    let x = coords[coord]
+                    let y = coords[coord + 1]
                     if x < left   then left <- x
                     if x > right  then right <- x
                     if y < top    then top <- y

@@ -1,8 +1,9 @@
-# Klip - TypeScript test harness
+# Klip - TypeScript test and benchmark harness
 
-Vitest-based tests that exercise Klip's Fable-compiled TypeScript output (`./_ts/Src/`)
-against the same fixtures used by the upstream
-[clipper2-ts](https://github.com/countertype/clipper2-ts) test suite.
+Vitest-based tests that exercise Klip's Fable output against the same fixtures used by the upstream
+[clipper2-ts](https://github.com/countertype/clipper2-ts/tree/main/tests) test suite.
+
+
 
 ## What's covered
 
@@ -24,7 +25,7 @@ Tests not ported (Klip doesn't expose the corresponding API): `lines.test.ts`
 
 ## Format adapter
 
-Klip's `Path64` is a class with parallel `xs[]/ys[]/zs[]` buffers, while
+Klip's `Path64` is a class with one flat interleaved `coords[]` buffer, while
 clipper2-ts (and the test fixtures) use `{x, y}[]`. `tests/adapter.ts`
 converts between the two and provides Klip-flavoured `area` / `areaPaths`
 helpers (delegating to Klip's `Geo_area`).
@@ -32,91 +33,110 @@ helpers (delegating to Klip's `Geo_area`).
 The test data parser keeps producing clipper2-ts-style `{x, y}[]` paths;
 conversion to Klip's `Path64` happens at the call site via the adapter.
 
-## Running
+## Running F# Tests
 
-Tests run against the **already-compiled** TS output in `./_ts/Src/`. If you
+adapted from the original C# tests in [Clipper2](https://github.com/AngusJohnson/Clipper2/tree/main/CSharp/Tests).
+
+
+```bash
+dotnet test Test/FSharp/Tests/Tests1/Tests1.fsproj
+dotnet test Test/FSharp/Tests/Tests2/TestsZ.fsproj
+```
+
+## Running JS Tests
+
+Tests run against the **already-compiled** JS output in `_dist/Klip.mjs`. If you
 change the F# sources, rebuild first:
 
 ```bash
-npm run buildTS   # dotnet fable ../Klip.fsproj --outDir ./_ts --lang ts --run tsc
-npm test          # vitest --run
+cd Test
+npm install     # install vitest and dependencies
 ```
 
-Or watch mode:
+Then run the tests with:
 
 ```bash
-npm run test:watch
+npm run build   # dotnet fable + vite build
+npm test        # vitest --run
 ```
 
 Vitest config: `vitest.config.ts` - picks up `tests/**/*.{test,spec}.ts`,
 excludes `_ts/fable_modules`.
 
-## Benchmarks
+### Run a specific test project
 
-`bench/` ports the applicable benchmarks from
-[clipper2-ts/bench/](https://github.com/countertype/clipper2-ts/tree/main/bench) (skipping offset, inflate, and
-triangulation, which Klip doesn't expose). Each `describe` group times the same
-operation against:
+| Project | What it covers |
+|---------|----------------|
+| `Tests1` | Boolean clipping (union/intersect/difference/xor), open paths, PolyTree |
+| `Tests2` (TestsZ) | Z-callback wiring on `Clipper64<'Z>` |
 
-- **clipper2-ts** - imported from the published
-  [`clipper2-ts`](https://www.npmjs.com/package/clipper2-ts) npm package, not
-  the local source
-- **Klip** - imported from `_dist/Klip.mjs` (the production Vite bundle)
+Both test projects target the `Klip` library directly via `..\..\..\..\Klip.fsproj`.
+Offsetting and PolyTree-from-file tests from the original C# port are intentionally
+omitted — Klip does not expose those APIs.
 
-| File                                 | Notes                                                         |
-| ------------------------------------ | ------------------------------------------------------------- |
-| `bench/bench-stats.ts`               | Copied verbatim from clipper2-ts                              |
-| `bench/test-data.ts`                 | Copy with import switched to `clipper2-ts` npm                |
-| `bench/lip-helpers.ts`               | Duck-typed `{xs, ys, zs}` adapter and Klip ops re-export       |
-| `bench/clipping-operations.bench.ts` | Side-by-side clipper2-ts vs Klip benches                       |
+## Running JS Benchmarks
 
-Klip inputs are pre-converted to its parallel-buffer `Path64` shape outside the
-timed regions (mirroring how clipper2-ts excludes input setup). The adapter
-duck-types `Path64` and `PolyTree64` instead of importing the classes, so
-`_dist/Klip.mjs` doesn't need to expose internals.
-
-Run:
+See `Test/bench/README.md` for details on the JS benchmarks.
 
 ```bash
-npm run buildJS   # rebuild _dist/Klip.mjs if F# sources changed
-npm run bench     # vitest bench --run
+cd Test
+npm run build   # rebuild _dist/Klip.mjs if F# sources changed
+npm run bench    # vitest bench --run
 ```
 
-### Latest results
+## Running F# Benchmarks
 
-Numbers below are throughput in operations/second (higher is better) from a
-single `npm run bench` run on Windows + Node. Treat sub-1.05x ratios as noise.
+The .NET benchmark harness compares Clipper2 `2.0.0` with the local `Klip.fsproj`
+for boolean clipping only: intersection, union, difference, and xor. Offsetting
+and triangulation are intentionally skipped because Klip exposes only a subset of
+Clipper2's API.
 
-| Operation                                        | clipper2-ts (hz) |     Klip (hz) | Ratio        |
-| ------------------------------------------------ | ---------------: | -----------: | ------------ |
-| union - medium complex polygon                   |          140,342 |      151,347 | **Klip 1.08x**|
-| union - large complex polygon                    |           30,334 |       31,223 | Klip 1.03x    |
-| union - very large complex polygon (2000 verts)  |            7,503 |        6,660 | c2ts 1.13x   |
-| union - medium grid (25 rectangles)              |           56,945 |       60,439 | Klip 1.06x    |
-| union - large grid (100 rectangles)              |           15,399 |       15,620 | Klip 1.01x    |
-| intersection - medium overlapping polygons       |           68,898 |       63,761 | c2ts 1.08x   |
-| intersection - large overlapping polygons        |           17,241 |       16,553 | c2ts 1.04x   |
-| intersection - grid with rectangle               |           63,752 |       68,451 | Klip 1.07x    |
-| difference - medium overlapping polygons         |           68,115 |       65,775 | c2ts 1.04x   |
-| difference - large overlapping polygons          |           16,571 |       15,982 | c2ts 1.04x   |
-| xor - medium overlapping polygons                |           55,688 |       58,123 | Klip 1.04x    |
-| xor - large overlapping polygons                 |           13,453 |       13,235 | c2ts 1.02x   |
-| 10x union on medium polygons                     |           14,045 |       13,939 | c2ts 1.01x   |
-| 10x intersection on medium polygons              |            6,898 |        6,831 | c2ts 1.01x   |
-| convenience union - medium grid                  |           59,241 |       61,846 | Klip 1.04x    |
-| convenience intersect - medium overlapping       |           70,948 |       71,092 | tie          |
-| convenience difference - medium overlapping      |           66,427 |       67,354 | Klip 1.01x    |
-| union - 3 non-overlapping rectangles             |          381,868 |      404,247 | Klip 1.06x    |
-| union - 2 overlapping rectangles                 |          472,870 |      560,550 | **Klip 1.19x**|
-| union - 4 simple circles (no self-intersection)  |          267,416 |      294,569 | **Klip 1.10x**|
-| polytree - medium grid union                     |           53,164 |       56,991 | Klip 1.07x    |
-| polytree - nested rectangles (difference)        |          478,881 |      469,689 | c2ts 1.02x   |
-| polytree - complex overlapping (intersection)    |           67,214 |       66,068 | c2ts 1.02x   |
-| union - geo-scale complex polygon                |          110,753 |      136,658 | **Klip 1.23x**|
-| intersection - geo-scale overlapping             |           49,381 |       69,107 | **Klip 1.40x**|
+```bash
+dotnet run -c Release --project Test/FSharp/Benchmark/Benchmark.csproj -- --join
+```
 
-Klip wins clearly on simple shapes, geo-scale (large) coordinates, and small
-polytree workloads. clipper2-ts is faster on the 2000-vertex single-polygon
-union and on medium/large pairwise intersection/difference; everywhere else
-the two are within ±5%.
+Local run notes from 2026-05-07:
 
+- BenchmarkDotNet `0.12.1`, .NET `10.0`, Windows `10.0.26200`, Intel Core i5-14600.
+- Quick benchmark config is enabled: throughput strategy, 1 launch, 8 warmups,
+  4 measured iterations, 256 invocations, and unroll factor 4. Treat the
+  numbers as local comparison signals, not publication-grade statistics.
+- Tested random closed subject/clip paths at `EdgeCount` 100 by default, with
+  larger counts left commented in `Benchmarks.cs` for longer exploratory runs.
+  The same generated coordinates are converted into Klip's flat
+  `Path64<'Z>` buffer format.
+- The full benchmark run completed in about `25.8s`.
+
+| Operation | Clipper2 mean | Klip mean | Klip / Clipper2 | Clipper2 allocated | Klip allocated | Klip alloc ratio |
+|-----------|--------------:|----------:|----------------:|-------------------:|---------------:|-----------------:|
+| Intersection | `673.4 us` | `663.0 us` | `0.98x` | `311.8 KB` | `581.89 KB` | `1.87x` |
+| Union | `620.4 us` | `617.3 us` | `0.99x` | `254.04 KB` | `493.91 KB` | `1.94x` |
+| Difference | `634.7 us` | `631.5 us` | `0.99x` | `283.83 KB` | `535.18 KB` | `1.89x` |
+| Xor | `741.0 us` | `710.6 us` | `0.96x` | `503.63 KB` | `778.48 KB` | `1.55x` |
+
+- In this run, Klip's runtime was effectively tied with Clipper2 across the
+  boolean-operation pairs, with measured means between `0.96x` and `0.99x` of
+  Clipper2's means. The error bars overlap, so read that as parity rather than
+  a clear speed win.
+- Managed allocation remains higher for Klip in this C# harness: about `1.55x`
+  to `1.94x` Clipper2's allocation, averaging roughly `1.8x` more.
+- BenchmarkDotNet wrote the full reports under `../BenchmarkDotNet.Artifacts/`
+  when run from this `Test` directory, or `BenchmarkDotNet.Artifacts/` when run
+  from the repository root.
+
+
+### Exploratory scripts
+
+The `CrossProductSignCompare.fsx` script is a standalone comparison harness for
+`CrossProductSign`. It compares three orientation-sign calculations for large,
+integer-stepped `Point64` values:
+
+- the Clipper-style integer-product implementation
+- a direct `float64` determinant sign
+- a `BigDecimal` determinant sign via `ExtendedNumerics.BigDecimal`
+
+Run it with:
+
+```bash
+dotnet fsi FSharp/Tests/CrossProductSignCompare.fsx
+```

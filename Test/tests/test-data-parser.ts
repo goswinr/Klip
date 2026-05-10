@@ -1,39 +1,39 @@
 /**
- * Test data parser for Clipper2 test files
+ * Test data parser for Clipper2 test files.
  *
- * Mirrors the functionality of ClipperFileIO.LoadTestNum() from the C# implementation.
- * Parses test data files that contain multiple test cases with subjects, clips, and expected results.
- *
- * Format specification matches the original Clipper2 test data structure to ensure
- * exact compatibility with reference implementations.
- *
- * NOTE: This parser produces clipper2-ts-style paths (`{x,y}[]`). At test sites, paths are
- * converted to Klip's parallel-buffer `Path64` class via the adapter in `./adapter.ts`.
+ * Mirrors clipper2-ts/tests/test-data-parser.ts but is self-contained:
+ * defines local `ClipType`/`FillRule` enums and the `Point64` shape so this
+ * module has no dependency on Klip's compiled output. Numeric values match
+ * Klip's `Engine1.ClipType` / `Engine1.FillRule`.
  */
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
-// Local enums mirror Klip.LipInternal.ClipType / FillRule (numerically identical to clipper2-ts).
+// Mirrors Klip's Engine1.ClipType discriminator values.
 export enum ClipType {
   NoClip = 0,
   Intersection = 1,
   Union = 2,
   Difference = 3,
-  Xor = 4
+  Xor = 4,
 }
 
+// Mirrors Klip's Engine1.FillRule discriminator values.
 export enum FillRule {
   EvenOdd = 0,
   NonZero = 1,
   Positive = 2,
-  Negative = 3
+  Negative = 3,
 }
 
-// Plain-object path shape used by the parser (the Klip Path64 class is constructed in the adapter).
-export interface Point64 { x: number; y: number; }
-export type Path64 = Point64[];
-export type Paths64 = Path64[];
+export interface Point64 {
+  readonly x: number;
+  readonly y: number;
+}
+
+export type PtPath64 = Point64[];
+export type PtPaths64 = PtPath64[];
 
 export interface TestCase {
   readonly caption: string;
@@ -41,25 +41,17 @@ export interface TestCase {
   readonly fillRule: FillRule;
   readonly expectedArea: number;
   readonly expectedCount: number;
-  readonly subjects: Paths64;
-  readonly subjectsOpen: Paths64;
-  readonly clips: Paths64;
+  readonly subjects: PtPaths64;
+  readonly subjectsOpen: PtPaths64;
+  readonly clips: PtPaths64;
 }
 
 export class TestDataParser {
-  /**
-   * Loads a specific test case from a test data file
-   *
-   * Maintains exact compatibility with the C# ClipperFileIO.LoadTestNum method.
-   * This ensures our TypeScript tests validate against the same reference data
-   * used by the official C# implementation.
-   */
   public static loadTestCase(filename: string, testNumber: number): TestCase | null {
     try {
       const fullPath = resolve(__dirname, 'test-data', filename);
       const content = readFileSync(fullPath, 'utf-8');
       const lines = content.split(/\r?\n/);
-
       return this.parseTestCase(lines, testNumber);
     } catch (error) {
       console.error(`Failed to load test file ${filename}:`, error);
@@ -67,17 +59,10 @@ export class TestDataParser {
     }
   }
 
-  /**
-   * Parses test case data from file content lines
-   *
-   * The parsing logic mirrors the C# implementation's state machine approach
-   * to handle the sequential nature of the test data format.
-   */
   private static parseTestCase(lines: string[], targetTestNumber: number): TestCase | null {
     let currentTestNumber = 0;
     let i = 0;
 
-    // Find the target test case
     while (i < lines.length) {
       if (lines[i].startsWith('CAPTION:')) {
         currentTestNumber++;
@@ -88,32 +73,24 @@ export class TestDataParser {
       i++;
     }
 
-    return null; // Test case not found
+    return null;
   }
 
-  /**
-   * Parses the content of a single test case
-   *
-   * Implements the exact parsing state machine used in the C# reference implementation
-   * to ensure identical interpretation of test data semantics.
-   */
   private static parseTestCaseContent(lines: string[], startIndex: number): TestCase | null {
     let caption = '';
     let clipType = ClipType.Intersection;
     let fillRule = FillRule.EvenOdd;
     let expectedArea = 0;
     let expectedCount = 0;
-    let subjects: Paths64 = [];
-    let subjectsOpen: Paths64 = [];
-    let clips: Paths64 = [];
+    let subjects: PtPaths64 = [];
+    let subjectsOpen: PtPaths64 = [];
+    let clips: PtPaths64 = [];
 
     let i = startIndex;
 
-    // Parse until next test case or end of file
     while (i < lines.length) {
       const line = lines[i].trim();
 
-      // Stop at next test case (but not the first CAPTION line)
       if (line.startsWith('CAPTION:') && i > startIndex) {
         break;
       }
@@ -129,15 +106,15 @@ export class TestDataParser {
       } else if (line.startsWith('SOL_COUNT:')) {
         expectedCount = parseInt(line.substring(10).trim()) || 0;
       } else if (line.startsWith('SUBJECTS_OPEN')) {
-        const result = this.parsePaths(lines, i + 1, startIndex);
+        const result = this.parsePaths(lines, i + 1);
         subjectsOpen = result.paths;
-        i = result.nextIndex - 1; // -1 because loop will increment
+        i = result.nextIndex - 1;
       } else if (line.startsWith('SUBJECTS')) {
-        const result = this.parsePaths(lines, i + 1, startIndex);
+        const result = this.parsePaths(lines, i + 1);
         subjects = result.paths;
         i = result.nextIndex - 1;
       } else if (line.startsWith('CLIPS')) {
-        const result = this.parsePaths(lines, i + 1, startIndex);
+        const result = this.parsePaths(lines, i + 1);
         clips = result.paths;
         i = result.nextIndex - 1;
       }
@@ -153,15 +130,10 @@ export class TestDataParser {
       expectedCount,
       subjects,
       subjectsOpen,
-      clips
+      clips,
     };
   }
 
-  /**
-   * Parses ClipType from string representation
-   *
-   * Maintains exact mapping compatibility with C# ClipType enumeration
-   */
   public static parseClipType(line: string): ClipType {
     const upperLine = line.toUpperCase();
     if (upperLine.includes('INTERSECTION')) return ClipType.Intersection;
@@ -171,11 +143,6 @@ export class TestDataParser {
     return ClipType.NoClip;
   }
 
-  /**
-   * Parses FillRule from string representation
-   *
-   * Maintains exact mapping compatibility with C# FillRule enumeration
-   */
   public static parseFillRule(line: string): FillRule {
     const upperLine = line.toUpperCase();
     if (upperLine.includes('EVENODD')) return FillRule.EvenOdd;
@@ -185,20 +152,13 @@ export class TestDataParser {
     return FillRule.EvenOdd;
   }
 
-  /**
-   * Parses coordinate paths from consecutive lines
-   *
-   * Follows the C# GetPaths() pattern where each line represents a complete path
-   * with coordinate pairs. This ensures exact data interpretation compatibility.
-   */
-  private static parsePaths(lines: string[], startIndex: number, testCaseStart?: number): { paths: Paths64; nextIndex: number } {
-    const paths: Paths64 = [];
+  private static parsePaths(lines: string[], startIndex: number): { paths: PtPaths64; nextIndex: number } {
+    const paths: PtPaths64 = [];
     let i = startIndex;
 
     while (i < lines.length) {
       const line = lines[i].trim();
 
-      // Stop at next section or empty line
       if (!line ||
           line.startsWith('CAPTION:') ||
           line.startsWith('CLIPTYPE:') ||
@@ -220,17 +180,10 @@ export class TestDataParser {
     return { paths, nextIndex: i };
   }
 
-  /**
-   * Parses a single line of coordinate pairs into a Path64
-   *
-   * Implements the same coordinate parsing logic as the C# GetInt() function
-   * to ensure numerical precision compatibility across implementations.
-   */
-  private static parseCoordinateLine(line: string): Path64 | null {
-    const path: Path64 = [];
+  private static parseCoordinateLine(line: string): PtPath64 | null {
+    const path: PtPath64 = [];
     const coords = line.split(/[,\s]+/).filter(s => s.trim().length > 0);
 
-    // Coordinates must come in pairs
     if (coords.length % 2 !== 0) {
       return null;
     }
@@ -249,12 +202,6 @@ export class TestDataParser {
     return path.length > 0 ? path : null;
   }
 
-  /**
-   * Loads all test cases from a file for batch processing
-   *
-   * Enables comprehensive test suite execution patterns similar to the C#
-   * implementation's ability to iterate through all test cases systematically.
-   */
   public static loadAllTestCases(filename: string): TestCase[] {
     try {
       const fullPath = resolve(__dirname, 'test-data', filename);

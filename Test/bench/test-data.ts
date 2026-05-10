@@ -1,11 +1,4 @@
-// Test-data generators for benchmarks.
-//
-// Adapted from clipper2-ts/bench/test-data.ts — the only change is the import
-// source: instead of pulling `Path64`/`Paths64`/`Clipper` from the local
-// `../src`, this version uses the published `clipper2-ts` npm package so the
-// benchmarks compare against the same artefact downstream consumers would use.
-import type { Path64, Paths64 } from 'clipper2-ts';
-import { Clipper } from 'clipper2-ts';
+import { Clipper, type Path64, type Paths64 } from 'clipper2-ts';
 
 export function generateCircle(
   radius: number,

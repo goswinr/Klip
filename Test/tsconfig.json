@@ -3,7 +3,7 @@
   "compilerOptions": {
     // Emit .d.ts declaration files alongside .js
     "declaration": true,
-    // "emitDeclarationOnly": true,
+    "emitDeclarationOnly": true,
 
     "outDir": "./_tsc",
     "rootDir": "./_ts",
@@ -18,7 +18,7 @@
 
     // Fable-generated TypeScript should not have errors, so strict mode by default
     "strict": true,
-    // Don't include any @types packages by default
-    "types": []
+    // Don't include any @types packages by default to buils fable TS
+    // "types": []
   }
 }

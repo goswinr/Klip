@@ -17,6 +17,9 @@ namespace Klip
 open System
 open Null
 
+
+//#region Klip public types
+
 /// An enumeration that defines the type of clipping operation to be performed.
 /// With the exception of <c>Difference</c>, these operations are commutative, so swapping
 /// the subject and clip inputs does not change the result.
@@ -39,8 +42,8 @@ type PathType =
 
 
 /// An enumeration that defines which regions of a complex polygon are considered "filled".
-/// <c>EvenOdd</c> and <c>NonZero</c> are the most commonly used
-/// fill rules, while <c>Positive</c> and <c>Negative</c> restrict filling by winding direction.
+/// <c>EvenOdd</c> and <c>NonZero</c> are the most commonly used fill rules,
+/// while <c>Positive</c> and <c>Negative</c> restrict filling by winding direction.
 type FillRule =
     /// A point is "inside" if a ray from it crosses an odd number of edges.
     | EvenOdd = 0
@@ -51,9 +54,10 @@ type FillRule =
     /// A point is "inside" if the winding number is less than 0.
     | Negative = 3
 
-//#region LipInternal
+//#endregion
+//#region KlipInternal types
 
-module LipInternal =
+module KlipInternal =
 
     /// Pre-clipping flags attached to each Vertex; combined as bit flags.
     [<Flags>]
@@ -85,20 +89,19 @@ module LipInternal =
     /// A pre-clipping vertex in a doubly-linked ring; carries flags that classify
     /// it relative to local minima / maxima.
     /// Careful: may be NULL when used as a property in other records.
-    type [<NoComparison;NoEquality>] Vertex = {
+    type [<NoComparison;NoEquality>] Vertex<'Z> = {
         x: float
         y: float
-        z: obj
-        mutable next: Vertex | null
-        mutable prev: Vertex | null
+        z: 'Z
+        mutable next: Vertex<'Z> | null
+        mutable prev: Vertex<'Z> | null
         mutable flags: VertexFlags
     }
 
     /// A local minimum of a path, used to seed the active edge list.
-    /// Careful: may be NULL when used as a property in other records.
-    type  [<NoComparison;NoEquality>] LocalMinima =
+    type [<Struct; NoComparison;NoEquality>] LocalMinima<'Z> = // a struct in C# passed by reference
         {
-        vertex: Vertex
+        vertex: Vertex<'Z>
         pathType: PathType
         isOpen: bool
         }
@@ -110,17 +113,17 @@ module LipInternal =
 
     /// Output vertex in a circular linked list representing a clipping solution path.
     /// Careful: may be NULL when used as a property in other records.
-    type [<NoComparison;NoEquality>] OutPt =
+    type [<NoComparison;NoEquality>] OutPt<'Z> =
         {
         x: float
         y: float
-        mutable z: obj
-        mutable next: OutPt | null
-        mutable prev: OutPt | null
-        mutable outrec: OutRec
-        mutable horz: HorzSegment | null
+        mutable z: 'Z
+        mutable next: OutPt<'Z> | null
+        mutable prev: OutPt<'Z> | null
+        mutable outrec: OutRec<'Z>
+        mutable horz: HorzSegment<'Z> | null
         }
-        static member create (x: float, y: float, z: obj, outrec: OutRec) : OutPt =
+        static member inline create (x: float, y: float, z: 'Z, outrec: OutRec<'Z>) : OutPt<'Z> =
             let result = {
                 x = x
                 y = y
@@ -136,91 +139,90 @@ module LipInternal =
 
     /// A horizontal edge segment accumulated during Vatti processing.
     /// Careful: may be NULL when used as a property in other records.
-    and [<NoComparison;NoEquality>] HorzSegment =
+    and [<NoComparison;NoEquality>] HorzSegment<'Z> =
         {
-        mutable leftOp: OutPt
-        mutable rightOp: OutPt | null
+        mutable leftOp: OutPt<'Z> | null
+        mutable rightOp: OutPt<'Z> | null
         mutable leftToRight: bool
         }
 
 
     /// A pair of OutPts that participate in a horizontal join.
     /// Careful: may be NULL when used as a property in other records.
-    and [<NoComparison;NoEquality>] HorzJoin  =
+    and [<NoComparison;NoEquality>] HorzJoin<'Z>  =
         {
-        op1: OutPt
-        op2: OutPt
+        op1: OutPt<'Z>
+        op2: OutPt<'Z>
         }
 
 
     /// Output record: the clipping solution for a single polygon contour.
     /// Careful: may be NULL when used as a property in other records.
-    and [<NoComparison;NoEquality>] OutRec =
+    and [<NoComparison;NoEquality>] OutRec<'Z> =
         {
         mutable idx: int
-        mutable owner: OutRec | null
-        mutable frontEdge: ActiveEdge | null
-        mutable backEdge: ActiveEdge | null
-        mutable pts: OutPt | null
-        mutable polypath: PolyPath64 | null
+        mutable owner: OutRec<'Z> | null
+        mutable frontEdge: ActiveEdge<'Z> | null
+        mutable backEdge: ActiveEdge<'Z> | null
+        mutable pts: OutPt<'Z> | null
+        mutable polypath: PolyPath64<'Z> | null
         mutable boundsLeft: float
         mutable boundsTop: float
         mutable boundsRight: float
         mutable boundsBottom: float
-        mutable path: Path64
+        mutable path: Path64<'Z>
         mutable isOpen: bool
         mutable splits: ResizeArray<int> | null
-        mutable recursiveSplit: OutRec | null
+        mutable recursiveSplit: OutRec<'Z> | null
         }
 
-    // Important: UP and DOWN here are premised on Y-axis positive down
-    // displays, which is the orientation used in Clipper's development.
     /// Active Edge Table node — one for each edge currently intersecting the scanbeam.
-    /// Careful: may be NULL when used as a property in other records.
-    and [<NoComparison;NoEquality>] ActiveEdge =
+    /// Important: UP and DOWN here are premised on Y-axis positive down
+    /// displays, which is the orientation used in Clipper's development.
+    and [<NoComparison;NoEquality>] ActiveEdge<'Z> =
         {
         mutable botX: float
         mutable botY: float
-        mutable botZ: obj
+        mutable botZ: 'Z
         mutable topX: float
         mutable topY: float
-        mutable topZ: obj
+        mutable topZ: 'Z
         mutable curX: float // current (updated at every new scanline) - keep as number but ensure integer precision
         mutable dx: float
         mutable windDx: int // 1 or -1 depending on winding direction
         mutable windCount: int
         mutable windCount2: int // winding count of the opposite polytype
-        mutable outrec: OutRec | null
+        mutable outrec: OutRec<'Z> | null
         // AEL: 'active edge list' (Vatti's AET - active edge table)
         //     a linked list of all edges (from left to right) that are present
         //     (or 'active') within the current scanbeam (a horizontal 'beam' that
         //     sweeps from bottom to top over the paths in the clipping operation).
-        mutable prevInAEL: ActiveEdge | null
-        mutable nextInAEL: ActiveEdge | null
+        mutable prevInAEL: ActiveEdge<'Z> | null
+        mutable nextInAEL: ActiveEdge<'Z> | null
         // SEL: 'sorted edge list' (Vatti's ST - sorted table)
         //     linked list used when sorting edges into their new positions at the
         //     top of scanbeams, but also (re)used to process horizontals.
-        mutable prevInSEL: ActiveEdge | null
-        mutable nextInSEL: ActiveEdge | null
-        mutable jump: ActiveEdge | null
-        mutable vertexTop: Vertex | null
+        mutable prevInSEL: ActiveEdge<'Z> | null
+        mutable nextInSEL: ActiveEdge<'Z> | null
+        mutable jump: ActiveEdge<'Z> | null
+        mutable vertexTop: Vertex<'Z> | null
         // the bottom of an edge 'bound' (also Vatti)
-        mutable localMin: LocalMinima | null
         mutable isLeftBound: bool
         mutable joinWith: JoinWith
+        localMin: LocalMinima<'Z>
         }
         static member create (
             botX:      float,
             botY:      float,
-            botZ:      obj,
+            botZ:      'Z,
             curX:      float,
             windDx:    int,
-            vertexTop: Vertex,
+            vertexTop: Vertex<'Z>,
             topX:      float,
             topY:      float,
-            topZ:      obj,
-            outrec:    OutRec,
-            localMin:  LocalMinima) =
+            topZ:      'Z,
+            outrec:    OutRec<'Z>,
+            localMin:  LocalMinima<'Z>) =
                 let dx =
                     // getDx inlined here
                     let dy = topY - botY
@@ -246,9 +248,9 @@ module LipInternal =
                 nextInSEL = null'()
                 jump = null'()
                 vertexTop = vertexTop
-                localMin = localMin
                 isLeftBound = false
                 joinWith = JoinWith.None
+                localMin = localMin
                 }
 
         /// True if this edge belongs to the subject polygon set; false if it belongs to the clip polygon set or if LocalMinima is null.
@@ -264,13 +266,17 @@ module LipInternal =
     //#region PolyPath64
 
     /// A node in a `PolyTree64`. Each `PolyPath64` represents a single contour.
-    /// PolyPathBase and PolyPath64 are merged, because PolyPathD does not exist in this F# port.
-    and [<AllowNullLiteral>] PolyPath64 (parent: PolyPath64 ) =
-        let children = ResizeArray<PolyPath64>()
-        let mutable _parent: PolyPath64  = parent
-        let mutable polygon: Path64 = null'()
+    and [<AllowNullLiteral>] PolyPath64<'Z> (parent: PolyPath64<'Z> ) =
+        // PolyPathBase and PolyPath64 are merged, because PolyPathD does not exist in this F# port.
 
-        new() = PolyPath64(null)
+        let children = ResizeArray<PolyPath64<'Z>>()
+
+        let mutable _parent: PolyPath64<'Z>  = parent
+
+        let mutable polygon: Path64<'Z> = null'()
+
+        new() =
+            PolyPath64(null)
 
         /// Gets or sets the `Path64` vertices of this contour.
         member _.Polygon
@@ -278,7 +284,8 @@ module LipInternal =
             and set(v) = polygon <- v
 
         /// Gets the parent node.
-        member _.Parent = _parent
+        member _.Parent =
+            _parent
 
         /// The nesting level of this contour.
         member _.Level : int =
@@ -303,18 +310,18 @@ module LipInternal =
             children|> Rarr.clear
 
         /// Gets the polygon contour. For the polytree root this is null.
-        member _.Poly : Path64 =
+        member _.Poly : Path64<'Z> =
             polygon
 
         /// Adds a child contour to this node.
-        member this.AddChild(p: Path64) : PolyPath64 =
-            let newChild = PolyPath64(this)
+        member this.AddChild(p: Path64<'Z>) : PolyPath64<'Z> =
+            let newChild = PolyPath64<'Z>(this)
             newChild.Polygon <- p
             children.Add(newChild)
             newChild
 
         /// Accesses child nodes (holes inside this contour, or outer contours inside this hole).
-        member _.Child(index: int) : PolyPath64 =
+        member _.Child(index: int) : PolyPath64<'Z> =
             if index < 0 || index >= children.Count then
                 raise (Exception($"PolyPath64.Child index {index} out of range for children count {children.Count}"))
             children[index]
@@ -334,10 +341,10 @@ module LipInternal =
             let sb = Text.StringBuilder()
             let padding = String.replicate level "  "
             let plural = if children.Count = 1 then "" else "s"
-            if (level &&& 1) = 0 then
-                sb.Append(sprintf "%s+- hole (%d) contains %d nested polygon%s.\n" padding idx children.Count plural) |> ignore
+            if level &&& 1 = 0 then
+                sb.AppendLine $"{padding}+- hole ({idx}) contains {children.Count} nested polygon{plural}." |> ignore
             else
-                sb.Append(sprintf "%s+- polygon (%d) contains %d hole%s.\n" padding idx children.Count plural) |> ignore
+                sb.AppendLine $"{padding}+- polygon ({idx}) contains {children.Count} hole{plural}." |> ignore
             for i = 0 to children.Count - 1 do
                 if children[i].Count > 0 then
                     sb.Append(children[i].ToStringInternal(i, level + 1)) |> ignore
@@ -349,7 +356,7 @@ module LipInternal =
             else
                 let plural = if children.Count = 1 then "" else "s"
                 let sb = Text.StringBuilder()
-                sb.Append(sprintf "Polytree with %d polygon%s.\n" children.Count plural) |> ignore
+                sb.AppendLine $"Polytree with {children.Count} polygon{plural}." |> ignore
                 for i = 0 to children.Count - 1 do
                     if children[i].Count > 0 then
                         sb.Append(children[i].ToStringInternal(i, 1)) |> ignore
@@ -363,20 +370,22 @@ module LipInternal =
     /// relationship between contours (outer contours and their holes), making it essential when the
     /// structure of the resulting polygons matters.
     [<AllowNullLiteral>]
-    type PolyTree64() =
-        inherit PolyPath64(null)
+    type PolyTree64<'Z>() =
+        inherit PolyPath64<'Z>(null)
 
 
     // IntersectNode: a structure representing 2 intersecting edges.
     // Intersections must be sorted so they are processed from the largest
     // Y coordinates to the smallest while keeping edges adjacent.
     /// Intersection node: two edges that cross at a given point.
-    type [<NoComparison;NoEquality>] IntersectNode = {
+    // [<Struct>]
+    [<NoComparison;NoEquality>]
+    type IntersectNode<'Z> = { // a struct in C# passed by reference
         mutable x: float
         mutable y: float
-        mutable z: obj
-        edge1: ActiveEdge
-        edge2: ActiveEdge
+        mutable z: 'Z
+        edge1: ActiveEdge<'Z>
+        edge2: ActiveEdge<'Z>
     }
 
 

@@ -1,421 +1,435 @@
-// Mirrors clipper2-ts/bench/clipping-operations.bench.ts but with each
-// operation benched twice — once against the published `clipper2-ts` npm
-// package, once against Klip's bundled `_dist/Klip.mjs` — so the two
-// implementations show up side by side in vitest's bench output.
-//
-// Klip inputs are pre-converted to `{xs, ys, zs}` (parallel-buffer Path64) once
-// per top-level scope; the conversion cost is intentionally excluded from the
-// timed regions, mirroring how clipper2-ts's bench excludes input setup.
-//
-// Klip skips: open subjects, polytree-area assertions, anything outside the
-// `booleanOp` / `booleanOpWithPolyTree` / `polyTreeToPaths64` surface.
-
+import { readFileSync } from 'node:fs';
 import { bench, describe } from 'vitest';
 import {
-  Clipper64,
-  PolyTree64,
   Clipper,
+  Clipper64,
   ClipType,
   FillRule,
+  PolyTree64,
+  type Path64,
   type Paths64,
-  type Path64
 } from 'clipper2-ts';
-import { testData, overlappingPairs } from './test-data';
+import { overlappingPairs, testData } from './test-data';
 import {
-  toLipPath,
-  toLipPaths,
-  createLipPolyTree,
-  booleanOp as Lip_booleanOp,
-  booleanOpWithPolyTree as Lip_booleanOpWithPolyTree,
-  intersect as Lip_intersect,
-  union as Lip_union,
-  unionSelf as Lip_unionSelf,
-  difference as Lip_difference
-} from './lip-helpers';
+  Klip,
+  clearPolyTree,
+  difference as klipDifference,
+  intersect as klipIntersect,
+  newPolyTree,
+  toKlipPaths,
+  union as klipUnion,
+} from './klip-helpers';
+import {
+  Wasm,
+  newWasmPaths,
+  newWasmPolyTree,
+  runWasmClipper,
+  runWasmPolyTree,
+  toWasmPaths,
+  wasmClipType,
+  wasmDifference,
+  wasmFillRule,
+  wasmIntersect,
+  wasmUnion,
+} from './wasm-helpers';
 
-// Klip-side inputs (converted once).
-const lip_mediumComplex   = toLipPath(testData.mediumComplex);
-const lip_largeComplex    = toLipPath(testData.largeComplex);
-const lip_veryLargeComplex= toLipPath(testData.veryLargeComplex);
-const lip_mediumGrid      = toLipPaths(testData.mediumGrid);
-const lip_largeGrid       = toLipPaths(testData.largeGrid);
-const lip_pair_medium_subject = toLipPaths(overlappingPairs.medium.subject);
-const lip_pair_medium_clip    = toLipPaths(overlappingPairs.medium.clip);
-const lip_pair_large_subject  = toLipPaths(overlappingPairs.large.subject);
-const lip_pair_large_clip     = toLipPaths(overlappingPairs.large.clip);
-const lip_pair_grid_subject   = toLipPaths(overlappingPairs.grid.subject);
-const lip_pair_grid_clip      = toLipPaths(overlappingPairs.grid.clip);
+const fillRule = FillRule.NonZero;
 
-describe('union — medium complex polygon', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject([testData.mediumComplex]);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Union, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Union, [lip_mediumComplex], [], FillRule.NonZero);
-  });
-});
+interface JsonPoint {
+  x: number;
+  y: number;
+}
 
-describe('union — large complex polygon', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject([testData.largeComplex]);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Union, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Union, [lip_largeComplex], [], FillRule.NonZero);
-  });
-});
+type RhinoPathsFixture = readonly (readonly (readonly JsonPoint[])[])[];
 
-describe('union — very large complex polygon (2000 vertices)', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject([testData.veryLargeComplex]);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Union, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Union, [lip_veryLargeComplex], [], FillRule.NonZero);
-  });
-});
+function loadRhinoPaths(scale: number): Paths64 {
+  const fixture = JSON.parse(
+    readFileSync(new URL('../Rhino/polysXY.json', import.meta.url), 'utf8'),
+  ) as RhinoPathsFixture;
+  const paths: Paths64 = [];
 
-describe('union — medium grid (25 rectangles)', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(testData.mediumGrid);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Union, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Union, lip_mediumGrid, [], FillRule.NonZero);
-  });
-});
-
-describe('union — large grid (100 rectangles)', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(testData.largeGrid);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Union, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Union, lip_largeGrid, [], FillRule.NonZero);
-  });
-});
-
-describe('intersection — medium overlapping polygons', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(overlappingPairs.medium.subject);
-    c.addClip(overlappingPairs.medium.clip);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Intersection, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Intersection, lip_pair_medium_subject, lip_pair_medium_clip, FillRule.NonZero);
-  });
-});
-
-describe('intersection — large overlapping polygons', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(overlappingPairs.large.subject);
-    c.addClip(overlappingPairs.large.clip);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Intersection, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Intersection, lip_pair_large_subject, lip_pair_large_clip, FillRule.NonZero);
-  });
-});
-
-describe('intersection — grid with rectangle', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(overlappingPairs.grid.subject);
-    c.addClip(overlappingPairs.grid.clip);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Intersection, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Intersection, lip_pair_grid_subject, lip_pair_grid_clip, FillRule.NonZero);
-  });
-});
-
-describe('difference — medium overlapping polygons', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(overlappingPairs.medium.subject);
-    c.addClip(overlappingPairs.medium.clip);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Difference, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Difference, lip_pair_medium_subject, lip_pair_medium_clip, FillRule.NonZero);
-  });
-});
-
-describe('difference — large overlapping polygons', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(overlappingPairs.large.subject);
-    c.addClip(overlappingPairs.large.clip);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Difference, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Difference, lip_pair_large_subject, lip_pair_large_clip, FillRule.NonZero);
-  });
-});
-
-describe('xor — medium overlapping polygons', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(overlappingPairs.medium.subject);
-    c.addClip(overlappingPairs.medium.clip);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Xor, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Xor, lip_pair_medium_subject, lip_pair_medium_clip, FillRule.NonZero);
-  });
-});
-
-describe('xor — large overlapping polygons', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(overlappingPairs.large.subject);
-    c.addClip(overlappingPairs.large.clip);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Xor, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Xor, lip_pair_large_subject, lip_pair_large_clip, FillRule.NonZero);
-  });
-});
-
-describe('10 union operations on medium polygons', () => {
-  bench('clipper2-ts', () => {
-    for (let i = 0; i < 10; i++) {
-      const c = new Clipper64();
-      c.addSubject([testData.mediumComplex]);
-      const solution: Paths64 = [];
-      c.execute(ClipType.Union, FillRule.NonZero, solution);
+  for (const group of fixture) {
+    for (const path of group) {
+      paths.push(path.map(point => ({
+        x: Math.round(point.x * scale),
+        y: Math.round(point.y * scale),
+      })));
     }
-  });
-  bench('Klip', () => {
-    for (let i = 0; i < 10; i++) {
-      Lip_booleanOp(ClipType.Union, [lip_mediumComplex], [], FillRule.NonZero);
-    }
-  });
-});
+  }
 
-describe('10 intersection operations on medium polygons', () => {
-  bench('clipper2-ts', () => {
-    for (let i = 0; i < 10; i++) {
-      const c = new Clipper64();
-      c.addSubject(overlappingPairs.medium.subject);
-      c.addClip(overlappingPairs.medium.clip);
-      const solution: Paths64 = [];
-      c.execute(ClipType.Intersection, FillRule.NonZero, solution);
-    }
-  });
-  bench('Klip', () => {
-    for (let i = 0; i < 10; i++) {
-      Lip_booleanOp(ClipType.Intersection, lip_pair_medium_subject, lip_pair_medium_clip, FillRule.NonZero);
-    }
-  });
-});
+  return paths;
+}
 
-describe('convenience union — medium grid', () => {
-  bench('clipper2-ts (Clipper.union)', () => {
-    Clipper.union(testData.mediumGrid, FillRule.NonZero);
-  });
-  bench('Klip (unionSelf)', () => {
-    Lip_unionSelf(lip_mediumGrid, FillRule.NonZero);
-  });
-});
+function runClipperTs(
+  clipType: ClipType,
+  subject: Paths64,
+  clip: Paths64 | null,
+): void {
+  const c = new Clipper64();
+  c.addSubject(subject);
+  if (clip !== null && clip.length > 0) c.addClip(clip);
 
-describe('convenience intersect — medium overlapping', () => {
-  bench('clipper2-ts (Clipper.intersect)', () => {
-    Clipper.intersect(
-      overlappingPairs.medium.subject,
-      overlappingPairs.medium.clip,
-      FillRule.NonZero
-    );
-  });
-  bench('Klip (intersect)', () => {
-    Lip_intersect(lip_pair_medium_subject, lip_pair_medium_clip, FillRule.NonZero);
-  });
-});
+  const solution: Paths64 = [];
+  c.execute(clipType, fillRule, solution);
+}
 
-describe('convenience difference — medium overlapping', () => {
-  bench('clipper2-ts (Clipper.difference)', () => {
-    Clipper.difference(
-      overlappingPairs.medium.subject,
-      overlappingPairs.medium.clip,
-      FillRule.NonZero
-    );
-  });
-  bench('Klip (difference)', () => {
-    Lip_difference(lip_pair_medium_subject, lip_pair_medium_clip, FillRule.NonZero);
-  });
-});
+function runClipperTsPolyTree(
+  clipType: ClipType,
+  subject: Paths64,
+  clip: Paths64 | null,
+): void {
+  const c = new Clipper64();
+  c.addSubject(subject);
+  if (clip !== null && clip.length > 0) c.addClip(clip);
 
-// === Simple Union Operations ============================================
-const simpleRects: Paths64 = [
-  [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }],
-  [{ x: 150, y: 150 }, { x: 250, y: 150 }, { x: 250, y: 250 }, { x: 150, y: 250 }],
-  [{ x: 300, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 100 }, { x: 300, y: 100 }]
-];
-const lip_simpleRects = toLipPaths(simpleRects);
+  const polytree = new PolyTree64();
+  c.execute(clipType, fillRule, polytree);
+}
 
-const twoOverlapping: Paths64 = [
-  [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }],
-  [{ x: 50, y: 50 }, { x: 150, y: 50 }, { x: 150, y: 150 }, { x: 50, y: 150 }]
-];
-const lip_twoOverlapping = toLipPaths(twoOverlapping);
+function benchBooleanOperation(
+  name: string,
+  clipType: ClipType,
+  subject: Paths64,
+  clip: Paths64 | null = null,
+  iterations = 1,
+): void {
+  const klipSubject = toKlipPaths(subject);
+  const klipClip = clip === null ? null : toKlipPaths(clip);
+  const wasmSubject = toWasmPaths(subject);
+  const wasmClip = clip === null ? null : toWasmPaths(clip);
 
-const simplePath: Path64 = [];
-for (let i = 0; i < 8; i++) {
-  const angle = (i / 8) * Math.PI * 2;
-  simplePath.push({
-    x: Math.round(Math.cos(angle) * 50 + 100),
-    y: Math.round(Math.sin(angle) * 50 + 100)
+  describe(name, () => {
+    bench('clipper2-ts', () => {
+      for (let i = 0; i < iterations; i++) runClipperTs(clipType, subject, clip);
+    });
+
+    bench('clipper2-wasm', () => {
+      for (let i = 0; i < iterations; i++) {
+        runWasmClipper(clipType, wasmSubject, wasmClip, fillRule);
+      }
+    });
+
+    bench('Klip', () => {
+      for (let i = 0; i < iterations; i++) {
+        Klip.booleanOp(clipType, klipSubject, klipClip, fillRule, undefined);
+      }
+    });
   });
 }
-const fourCircles: Paths64 = [
-  simplePath,
-  simplePath.map((p) => ({ x: p.x + 200, y: p.y })),
-  simplePath.map((p) => ({ x: p.x, y: p.y + 200 })),
-  simplePath.map((p) => ({ x: p.x + 200, y: p.y + 200 }))
-];
-const lip_fourCircles = toLipPaths(fourCircles);
 
-describe('union — 3 non-overlapping rectangles', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(simpleRects);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Union, FillRule.NonZero, solution);
+function benchPolyTreeOperation(
+  name: string,
+  clipType: ClipType,
+  subject: Paths64,
+  clip: Paths64 | null = null,
+): void {
+  const klipSubject = toKlipPaths(subject);
+  const klipClip = clip === null ? null : toKlipPaths(clip);
+  const wasmSubject = toWasmPaths(subject);
+  const wasmClip = clip === null ? null : toWasmPaths(clip);
+
+  describe(name, () => {
+    bench('clipper2-ts', () => {
+      runClipperTsPolyTree(clipType, subject, clip);
+    });
+
+    bench('clipper2-wasm', () => {
+      runWasmPolyTree(clipType, wasmSubject, wasmClip, fillRule);
+    });
+
+    bench('Klip', () => {
+      const polytree = newPolyTree();
+      Klip.booleanOpWithPolyTree(clipType, klipSubject, klipClip, polytree, fillRule, undefined);
+    });
   });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Union, lip_simpleRects, [], FillRule.NonZero);
+}
+
+function benchConvenienceOperation(
+  name: string,
+  runTs: () => void,
+  runWasm: () => void,
+  runKlip: () => void,
+): void {
+  describe(name, () => {
+    bench('clipper2-ts', runTs);
+    bench('clipper2-wasm', runWasm);
+    bench('Klip', runKlip);
   });
+}
+
+
+
+describe('Intersection Operations', () => {
+  benchBooleanOperation(
+    'intersection - medium overlapping polygons',
+    ClipType.Intersection,
+    overlappingPairs.medium.subject,
+    overlappingPairs.medium.clip,
+  );
+  benchBooleanOperation(
+    'intersection - large overlapping polygons',
+    ClipType.Intersection,
+    overlappingPairs.large.subject,
+    overlappingPairs.large.clip,
+  );
+  benchBooleanOperation(
+    'intersection - grid with rectangle',
+    ClipType.Intersection,
+    overlappingPairs.grid.subject,
+    overlappingPairs.grid.clip,
+  );
 });
 
-describe('union — 2 overlapping rectangles', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(twoOverlapping);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Union, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Union, lip_twoOverlapping, [], FillRule.NonZero);
-  });
+describe('Difference Operations', () => {
+  benchBooleanOperation(
+    'difference - medium overlapping polygons',
+    ClipType.Difference,
+    overlappingPairs.medium.subject,
+    overlappingPairs.medium.clip,
+  );
+  benchBooleanOperation(
+    'difference - large overlapping polygons',
+    ClipType.Difference,
+    overlappingPairs.large.subject,
+    overlappingPairs.large.clip,
+  );
 });
 
-describe('union — 4 simple circles (no self-intersection)', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(fourCircles);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Union, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Union, lip_fourCircles, [], FillRule.NonZero);
-  });
+describe('XOR Operations', () => {
+  benchBooleanOperation(
+    'xor - medium overlapping polygons',
+    ClipType.Xor,
+    overlappingPairs.medium.subject,
+    overlappingPairs.medium.clip,
+  );
+  benchBooleanOperation(
+    'xor - large overlapping polygons',
+    ClipType.Xor,
+    overlappingPairs.large.subject,
+    overlappingPairs.large.clip,
+  );
 });
 
-// === PolyTree Operations ================================================
-const ptDiffOuter: Paths64 = [
-  [{ x: 0, y: 0 }, { x: 1000, y: 0 }, { x: 1000, y: 1000 }, { x: 0, y: 1000 }]
-];
-const ptDiffInner: Paths64 = [
-  [{ x: 200, y: 200 }, { x: 800, y: 200 }, { x: 800, y: 800 }, { x: 200, y: 800 }]
-];
-const lip_ptDiffOuter = toLipPaths(ptDiffOuter);
-const lip_ptDiffInner = toLipPaths(ptDiffInner);
-
-describe('polytree — medium grid union', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(testData.mediumGrid);
-    const polytree = new PolyTree64();
-    c.execute(ClipType.Union, FillRule.NonZero, polytree);
-  });
-  bench('Klip', () => {
-    const polytree = createLipPolyTree();
-    Lip_booleanOpWithPolyTree(ClipType.Union, lip_mediumGrid, [], polytree, FillRule.NonZero);
-  });
+describe('Multiple Operations (stress test)', () => {
+  benchBooleanOperation('10 union operations on medium polygons', ClipType.Union, [testData.mediumComplex], null, 10);
+  benchBooleanOperation(
+    '10 intersection operations on medium polygons',
+    ClipType.Intersection,
+    overlappingPairs.medium.subject,
+    overlappingPairs.medium.clip,
+    10,
+  );
 });
 
-describe('polytree — nested rectangles (difference)', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(ptDiffOuter);
-    c.addClip(ptDiffInner);
-    const polytree = new PolyTree64();
-    c.execute(ClipType.Difference, FillRule.NonZero, polytree);
-  });
-  bench('Klip', () => {
-    const polytree = createLipPolyTree();
-    Lip_booleanOpWithPolyTree(ClipType.Difference, lip_ptDiffOuter, lip_ptDiffInner, polytree, FillRule.NonZero);
-  });
+describe('Convenience Functions', () => {
+  {
+    const subject = testData.mediumGrid;
+    const klipSubject = toKlipPaths(subject);
+    const wasmSubject = toWasmPaths(subject);
+
+    benchConvenienceOperation(
+      'Clipper.union - medium grid',
+      () => { Clipper.union(subject, fillRule); },
+      () => { wasmUnion(wasmSubject, fillRule); },
+      () => { klipUnion(klipSubject, fillRule); },
+    );
+  }
+
+  {
+    const subject = overlappingPairs.medium.subject;
+    const clip = overlappingPairs.medium.clip;
+    const klipSubject = toKlipPaths(subject);
+    const klipClip = toKlipPaths(clip);
+    const wasmSubject = toWasmPaths(subject);
+    const wasmClip = toWasmPaths(clip);
+
+    benchConvenienceOperation(
+      'Clipper.intersect - medium overlapping',
+      () => { Clipper.intersect(subject, clip, fillRule); },
+      () => { wasmIntersect(wasmSubject, wasmClip, fillRule); },
+      () => { klipIntersect(klipSubject, klipClip, fillRule); },
+    );
+
+    benchConvenienceOperation(
+      'Clipper.difference - medium overlapping',
+      () => { Clipper.difference(subject, clip, fillRule); },
+      () => { wasmDifference(wasmSubject, wasmClip, fillRule); },
+      () => { klipDifference(klipSubject, klipClip, fillRule); },
+    );
+  }
 });
 
-describe('polytree — complex overlapping (intersection)', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject(overlappingPairs.medium.subject);
-    c.addClip(overlappingPairs.medium.clip);
-    const polytree = new PolyTree64();
-    c.execute(ClipType.Intersection, FillRule.NonZero, polytree);
-  });
-  bench('Klip', () => {
-    const polytree = createLipPolyTree();
-    Lip_booleanOpWithPolyTree(ClipType.Intersection, lip_pair_medium_subject, lip_pair_medium_clip, polytree, FillRule.NonZero);
-  });
+describe('Simple Union Operations', () => {
+  const simpleRects: Paths64 = [
+    [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }],
+    [{ x: 150, y: 150 }, { x: 250, y: 150 }, { x: 250, y: 250 }, { x: 150, y: 250 }],
+    [{ x: 300, y: 0 }, { x: 400, y: 0 }, { x: 400, y: 100 }, { x: 300, y: 100 }],
+  ];
+
+  const twoOverlapping: Paths64 = [
+    [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }],
+    [{ x: 50, y: 50 }, { x: 150, y: 50 }, { x: 150, y: 150 }, { x: 50, y: 150 }],
+  ];
+
+  const simplePath: Path64 = [];
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2;
+    simplePath.push({
+      x: Math.round(Math.cos(angle) * 50 + 100),
+      y: Math.round(Math.sin(angle) * 50 + 100),
+    });
+  }
+
+  const fourCircles: Paths64 = [
+    simplePath,
+    simplePath.map(p => ({ x: p.x + 200, y: p.y })),
+    simplePath.map(p => ({ x: p.x, y: p.y + 200 })),
+    simplePath.map(p => ({ x: p.x + 200, y: p.y + 200 })),
+  ];
+
+  benchBooleanOperation('union - 3 non-overlapping rectangles', ClipType.Union, simpleRects);
+  benchBooleanOperation('union - 2 overlapping rectangles', ClipType.Union, twoOverlapping);
+  benchBooleanOperation('union - 4 simple circles (no self-intersection)', ClipType.Union, fourCircles);
 });
 
-// === Geo-scale Coordinates ==============================================
-const scale = 360_000;
-const geoComplex: Path64 = testData.mediumComplex.map(p => ({
-  x: Math.round(p.x * scale),
-  y: Math.round(p.y * scale)
-}));
-const geoComplexShifted: Path64 = geoComplex.map(p => ({
-  x: p.x + Math.round(200 * scale),
-  y: p.y + Math.round(200 * scale)
-}));
-const lip_geoComplex        = toLipPath(geoComplex);
-const lip_geoComplexShifted = toLipPath(geoComplexShifted);
+describe('PolyTree Operations', () => {
+  benchPolyTreeOperation('polytree - medium grid union', ClipType.Union, testData.mediumGrid);
 
-describe('union — geo-scale complex polygon', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject([geoComplex]);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Union, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Union, [lip_geoComplex], [], FillRule.NonZero);
-  });
+  benchPolyTreeOperation(
+    'polytree - nested rectangles',
+    ClipType.Difference,
+    [[
+      { x: 0, y: 0 },
+      { x: 1000, y: 0 },
+      { x: 1000, y: 1000 },
+      { x: 0, y: 1000 },
+    ]],
+    [[
+      { x: 200, y: 200 },
+      { x: 800, y: 200 },
+      { x: 800, y: 800 },
+      { x: 200, y: 800 },
+    ]],
+  );
+
+  benchPolyTreeOperation(
+    'polytree - complex overlapping',
+    ClipType.Intersection,
+    overlappingPairs.medium.subject,
+    overlappingPairs.medium.clip,
+  );
 });
 
-describe('intersection — geo-scale overlapping', () => {
-  bench('clipper2-ts', () => {
-    const c = new Clipper64();
-    c.addSubject([geoComplex]);
-    c.addClip([geoComplexShifted]);
-    const solution: Paths64 = [];
-    c.execute(ClipType.Intersection, FillRule.NonZero, solution);
-  });
-  bench('Klip', () => {
-    Lip_booleanOp(ClipType.Intersection, [lip_geoComplex], [lip_geoComplexShifted], FillRule.NonZero);
-  });
+describe('Instance Reuse', () => {
+  const twoOverlapping: Paths64 = [
+    [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }],
+    [{ x: 50, y: 50 }, { x: 150, y: 50 }, { x: 150, y: 150 }, { x: 50, y: 150 }],
+  ];
+
+  benchBooleanOperation('fresh instance - 2 overlapping rectangles', ClipType.Union, twoOverlapping);
+
+  {
+    const reusedClipper = new Clipper64();
+    const reusedSolution: Paths64 = [];
+    const klipSubject = toKlipPaths(twoOverlapping);
+    const wasmSubject = toWasmPaths(twoOverlapping);
+    const wasmClipper = new Wasm.Clipper64();
+    const wasmSolution = newWasmPaths();
+
+    describe('reused instance - 2 overlapping rectangles', () => {
+      bench('clipper2-ts', () => {
+        reusedClipper.clear();
+        reusedClipper.addSubject(twoOverlapping);
+        reusedSolution.length = 0;
+        reusedClipper.execute(ClipType.Union, fillRule, reusedSolution);
+      });
+
+      bench('clipper2-wasm', () => {
+        wasmClipper.Clear();
+        wasmClipper.AddSubject(wasmSubject);
+        wasmSolution.clear();
+        wasmClipper.ExecutePath(wasmClipType(ClipType.Union), wasmFillRule(fillRule), wasmSolution);
+      });
+
+      bench('Klip', () => {
+        Klip.booleanOp(ClipType.Union, klipSubject, null, fillRule, undefined);
+      });
+    });
+  }
+
+  const nestedSubject: Paths64 = [[
+    { x: 0, y: 0 },
+    { x: 1000, y: 0 },
+    { x: 1000, y: 1000 },
+    { x: 0, y: 1000 },
+  ]];
+  const nestedClip: Paths64 = [[
+    { x: 200, y: 200 },
+    { x: 800, y: 200 },
+    { x: 800, y: 800 },
+    { x: 200, y: 800 },
+  ]];
+
+  benchPolyTreeOperation('fresh polytree - nested rectangles', ClipType.Difference, nestedSubject, nestedClip);
+
+  {
+    const reusedClipper = new Clipper64();
+    const reusedPolytree = new PolyTree64();
+    const klipSubject = toKlipPaths(nestedSubject);
+    const klipClip = toKlipPaths(nestedClip);
+    const reusedKlipTree = newPolyTree();
+    const wasmSubject = toWasmPaths(nestedSubject);
+    const wasmClip = toWasmPaths(nestedClip);
+    const wasmClipper = new Wasm.Clipper64();
+    const wasmPolytree = newWasmPolyTree();
+
+    describe('reused polytree - nested rectangles', () => {
+      bench('clipper2-ts', () => {
+        reusedClipper.clear();
+        reusedClipper.addSubject(nestedSubject);
+        reusedClipper.addClip(nestedClip);
+        reusedPolytree.clear();
+        reusedClipper.execute(ClipType.Difference, fillRule, reusedPolytree);
+      });
+
+      bench('clipper2-wasm', () => {
+        wasmClipper.Clear();
+        wasmClipper.AddSubject(wasmSubject);
+        wasmClipper.AddClip(wasmClip);
+        wasmPolytree.clear();
+        wasmClipper.ExecutePoly(wasmClipType(ClipType.Difference), wasmFillRule(fillRule), wasmPolytree);
+      });
+
+      bench('Klip', () => {
+        clearPolyTree(reusedKlipTree);
+        Klip.booleanOpWithPolyTree(ClipType.Difference, klipSubject, klipClip, reusedKlipTree, fillRule, undefined);
+      });
+    });
+  }
+});
+
+describe('Geo-scale Coordinates', () => {
+  const scale = 360_000;
+  const geoComplex: Path64 = testData.mediumComplex.map(p => ({
+    x: Math.round(p.x * scale),
+    y: Math.round(p.y * scale),
+  }));
+  const geoComplexShifted: Path64 = geoComplex.map(p => ({
+    x: p.x + Math.round(200 * scale),
+    y: p.y + Math.round(200 * scale),
+  }));
+
+  benchBooleanOperation('union - geo-scale complex polygon', ClipType.Union, [geoComplex]);
+  benchBooleanOperation('intersection - geo-scale overlapping', ClipType.Intersection, [geoComplex], [geoComplexShifted]);
+});
+
+describe('Union Operations', () => {
+  const rhinoPolysXY = loadRhinoPaths(1000.0);
+
+  benchBooleanOperation('union - medium complex polygon', ClipType.Union, [testData.mediumComplex]);
+  benchBooleanOperation('union - large complex polygon', ClipType.Union, [testData.largeComplex]);
+  benchBooleanOperation('union - very large complex polygon (2000 vertices)', ClipType.Union, [testData.veryLargeComplex]);
+  benchBooleanOperation('union - medium grid (25 rectangles)', ClipType.Union, testData.mediumGrid);
+  benchBooleanOperation('union - large grid (100 rectangles)', ClipType.Union, testData.largeGrid);
+  benchBooleanOperation('union - Rhino polysXY scaled 10e4', ClipType.Union, rhinoPolysXY);
 });
