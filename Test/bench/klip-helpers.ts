@@ -42,7 +42,19 @@ interface KlipApi {
   polyTreeToPaths64(polyTree: KlipPolyTree64): KlipPaths64;
 }
 
-export const Klip = KlipModule as unknown as KlipApi;
+interface KlipBundle {
+  Clipper_booleanOp: KlipApi['booleanOp'];
+  Clipper_booleanOpWithPolyTree: KlipApi['booleanOpWithPolyTree'];
+  Clipper_polyTreeToPaths64: KlipApi['polyTreeToPaths64'];
+}
+
+const bundle = KlipModule as unknown as KlipBundle;
+
+export const Klip: KlipApi = {
+  booleanOp: bundle.Clipper_booleanOp,
+  booleanOpWithPolyTree: bundle.Clipper_booleanOpWithPolyTree,
+  polyTreeToPaths64: bundle.Clipper_polyTreeToPaths64,
+};
 
 export function toKlipPath(path: readonly Point64[]): KlipPath64 {
   const xys = new Array<number>(path.length * 2);
