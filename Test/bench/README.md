@@ -10,9 +10,10 @@ these directly. In total, fewer JavaScript objects are allocated.
 
 
 This folder `bench/` ports the applicable benchmarks from
-[clipper2-ts/bench/](https://github.com/countertype/clipper2-ts/tree/main/bench) (skipping internal BigInt fallback,
-triangulation, and offset/inflate cases, which Klip doesn't expose). Each
-`describe` group times the same operation against:
+[clipper2-ts/bench/](https://github.com/countertype/clipper2-ts/tree/main/bench) (skipping internal BigInt fallback
+and triangulation cases, which Klip doesn't expose; offset/inflate is exposed
+but not yet benchmarked here). Each `describe` group times the same operation
+against:
 
 - **clipper2-ts** - imported from the published
   [`clipper2-ts`](https://www.npmjs.com/package/clipper2-ts) npm package, not

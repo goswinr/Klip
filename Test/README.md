@@ -8,25 +8,28 @@ Vitest-based tests that exercise Klip's Fable output against the same fixtures u
 ## What's covered
 
 Klip currently exposes a subset of Clipper2's surface: the boolean ops and
-PolyTree wrappers in `Klip/Src/Klip.fs`
+PolyTree wrappers plus polygon offsetting in `Klip/Src/Klip.fs`
 (`booleanOp`, `intersect`, `union`, `unionSelf`, `difference`, `xor`,
-`booleanOpWithPolyTree`, `polyTreeToPaths64`).
+`booleanOpWithPolyTree`, `polyTreeToPaths64`, `inflate`, `inflatePaths`,
+`offsetOpenPaths`, plus the `ClipperOffset<'Z>` class).
 
-The TypeScript Vitest harness mirrors the boolean / PolyTree
-fixtures, with an additional F# port under `FSharp/`:
+The TypeScript Vitest harness mirrors the boolean / PolyTree / offset
+fixtures. An additional F# port of the offset suite lives under `FSharp/`:
 
 | File                       | Mirrors                              | Notes                                                                      |
 | -------------------------- | ------------------------------------ | -------------------------------------------------------------------------- |
 | `tests/polygons.test.ts`   | `clipper2-ts/tests/polygons.test.ts` | All 195 Polygons.txt cases + PolyTree consistency, basic ops, edge cases   |
 | `tests/polytree.test.ts`   | `clipper2-ts/tests/polytree.test.ts` | Hole ownership, complex nesting, area validation                           |
+| `tests/offsets.test.ts`    | `clipper2-ts/tests/offsets.test.ts`  | Empty offsets, zero-area rings, negative offsets, holes, join/end types, arc tolerance |
 | `tests/sliver-triangle.test.ts` | `clipper2-ts/tests/sliver-triangle.test.ts` | Regression for Clipper2 issue #1067 — NonZero union over sliver triangles |
 | `tests/test-data-parser.ts`| `clipper2-ts/tests/test-data-parser.ts` | Self-contained: defines local `ClipType`/`FillRule` enums and `Point64` shape |
-| `tests/test-data/`         | `clipper2-ts/tests/test-data/`       | `Polygons.txt`, `PolytreeHoleOwner.txt`, `PolytreeHoleOwner2.txt` |
+| `tests/test-data/`         | `clipper2-ts/tests/test-data/`       | `Polygons.txt`, `Offsets.txt`, `PolytreeHoleOwner.txt`, `PolytreeHoleOwner2.txt` |
+| `FSharp/Tests/Tests1/Tests/OffsetTests.fs` | `clipper2-ts/tests/offsets.test.ts` | F# port of the same offset cases against `Klip.fsproj` directly |
 | `FSharp/Tests/Tests1/Tests/SliverTriangleTests.fs` | `clipper2-ts/tests/sliver-triangle.test.ts` | F# port of the issue #1067 regression |
 
-Tests not ported (Klip doesn't expose the corresponding API): `offsets.test.ts`
-(polygon offsetting), `lines.test.ts` (open subjects), `rectClip`,
-`triangulation`, `minkowski`, `precision`, `z-callback`, `comprehensive`.
+Tests not ported (Klip doesn't expose the corresponding API): `lines.test.ts`
+(open subjects), `rectClip`, `triangulation`, `minkowski`, `precision`,
+`z-callback`, `sliver-triangle`, `comprehensive`.
 
 ## Format adapter
 
@@ -74,7 +77,7 @@ excludes `_ts/fable_modules`.
 
 | Project | What it covers |
 |---------|----------------|
-| `Tests1` | Boolean clipping (union/intersect/difference/xor), open paths, PolyTree |
+| `Tests1` | Boolean clipping (union/intersect/difference/xor), open paths, PolyTree, offsetting (`ClipperOffset` / `inflatePaths` / `offsetOpenPaths`) |
 | `Tests2` (TestsZ) | Z-callback wiring on `Clipper64<'Z>` |
 
 Both test projects target the `Klip` library directly via `..\..\..\..\Klip.fsproj`.
@@ -95,7 +98,7 @@ npm run bench    # vitest bench --run
 
 The .NET benchmark harness compares Clipper2 `2.0.0` with the local `Klip.fsproj`
 for boolean clipping only: intersection, union, difference, and xor. Offsetting
-and triangulation aren't exposed by Klip.
+is exposed by Klip but not benchmarked here yet; triangulation isn't exposed.
 
 ```bash
 dotnet run -c Release --project Test/FSharp/Benchmark/Benchmark.csproj -- --join

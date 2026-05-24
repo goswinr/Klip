@@ -56,6 +56,7 @@
     <Compile Include="Src/Core.fs" />
     <Compile Include="Src/Engine1.fs" />
     <Compile Include="Src/Engine2.fs" />
+    <Compile Include="Src/Offset.fs" />
     <Compile Include="Src/Klip.fs" />
   </ItemGroup>
 

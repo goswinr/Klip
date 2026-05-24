@@ -25,10 +25,12 @@ So that this code - and a lot of other code using it - runs on .NET as well as i
 
 ## Scope
 
-This is a **partial** port - it exposes polygon boolean operations
+This is a **partial** port - it exposes polygon boolean operations and offsetting
 on a single coordinate type:
 
 - Polygon boolean ops (intersection, union, difference, XOR) and PolyTree output
+- Polygon offsetting (inflate / deflate / inset / outset) for closed and open paths,
+  with `Miter`, `Square`, `Bevel`, and `Round` joins and the usual end-cap types
 
 - like in `clipper2-ts` 64-bit integer coordinates are represented by `float` (64-bit) so the output is
   Fable-friendly (no JS `bigint`) .
@@ -36,7 +38,7 @@ on a single coordinate type:
 - No scaling of input coordinates, like PathD does in `clipper2-ts` to support floating-point input.
 Instead, users can choose to scale their coordinates before passing them to Klip if they need more precision.
 
-- No polygon offsetting, line clipping, rect clipping, Minkowski sums,
+- No line clipping, rect clipping, Minkowski sums,
   triangulation, or arbitrary-precision decimal paths
 
 The main convenience API is in [`Src/Klip.fs`](https://github.com/goswinr/Klip/blob/main/Src/Klip.fs), in the `Klip.Klipper` module. It wraps `Clipper64` for the common polygon boolean operations while keeping the lower-level engine available for specialized cases.
@@ -131,6 +133,45 @@ let intersection = Klipper.intersect clip subject
 
 let nonZeroDifference =
     Klipper.booleanOp (ClipType.Difference, subject, clip, FillRule.NonZero, None)
+```
+
+
+## Offsetting
+
+Inflating (positive `delta`) and deflating (negative `delta`) of polygons:
+
+- `Klipper.inflate delta paths`: Inflates / deflates closed polygons using round joins and default tolerances.
+- `Klipper.inflatePaths (paths, delta, joinType, miterLimit, arcTolerance)`: Same, with explicit join type and tolerances.
+- `Klipper.offsetOpenPaths (paths, delta, joinType, endType, miterLimit, arcTolerance)`: Offsets open paths (lines), with the specified end-cap shape (`Butt`, `Square`, `Round`, or `Joined`).
+
+### Open vs closed paths
+
+For offsetting, open / closed is selected by the `EndType` passed alongside the path —
+not by whether the first and last coordinates match. The choice also affects the result
+shape:
+
+- `EndType.Polygon`: treats the path as a **closed polygon**. The offset is applied on
+  one side (outside for positive `delta`, inside for negative) and the result is again
+  a closed polygon. This is what `Klipper.inflate` / `Klipper.inflatePaths` use.
+- `EndType.Joined`: treats the path as **open** but joins the first vertex to the last,
+  so the offset wraps around both sides of the polyline and closes back on itself.
+- `EndType.Butt` / `EndType.Square` / `EndType.Round`: treats the path as an **open
+  polyline**. The offset runs along both sides of the line and the two ends are capped
+  with the named shape (perpendicular cut, squared overhang, or rounded).
+
+`joinType` is one of `JoinType.Miter`, `JoinType.Square`, `JoinType.Bevel`, `JoinType.Round`
+and controls how corners *between* segments are constructed in all cases.
+
+Use `ClipperOffset<'Z>` directly for full control over multiple groups (each with its
+own `joinType` / `endType` — so you can mix open and closed input in one execution),
+`ZCallback`, `DeltaCallback`, `PolyTree64` output, and reused state:
+
+```fsharp
+let co = ClipperOffset<unit>(miterLimit = 2.0, arcTolerance = 0.25)
+co.AddPaths(closedPolys, JoinType.Round, EndType.Polygon)
+co.AddPaths(polylines,   JoinType.Round, EndType.Round)
+let solution = Paths64<unit>()
+co.Execute(10.0, solution)
 ```
 
 

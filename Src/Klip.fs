@@ -125,6 +125,105 @@ module Klipper =
             _addPolyNodeToPaths (polyTree.Child(i)) result
         result
 
+    // #endregion
+    // #region Offsetting
+
+    /// Same as `Klipper.inflatePaths`.
+    /// Offsets the given closed polygons.
+    /// Inflates with positive `delta` or deflates with negative `delta`.
+    /// `joinType` controls how corners are constructed (`Miter`, `Square`, `Bevel`, `Round`).
+    /// `miterLimit` limits how far miter joins extend (typical default 2.0).
+    /// `arcTolerance` controls arc smoothness when using `Round` joins;
+    /// 0.0 selects an automatic tolerance of `|delta| / 500`.
+    let offsetPaths (paths:Paths64<'Z>, delta:float, joinType:JoinType, miterLimit:float, arcTolerance:float) : Paths64<'Z> =
+        let solution = Paths64<'Z>()
+        if isNull' paths then
+            solution
+        else
+            let co = ClipperOffset<'Z>(miterLimit, arcTolerance)
+            co.AddPaths(paths, joinType, EndType.Polygon) // EndType.Polygon makes the path closed and only offsets to one side,
+            co.Execute(delta, solution)
+            solution
+
+
+    /// Same as `offsetPaths`
+    let inflatePaths (paths:Paths64<'Z>, delta:float, joinType:JoinType, miterLimit:float, arcTolerance:float) : Paths64<'Z> =
+        offsetPaths(paths, delta, joinType, miterLimit, arcTolerance)
+
+
+    /// Same as `Klipper.inflate`.
+    /// Offsets the given closed polygons. Inflates with positive `delta` or deflates with negative `delta`.
+    /// Uses miter joins, a miter limit of 2.0, and the default arc tolerance.
+    let offset (delta:float) (paths:Paths64<'Z>) : Paths64<'Z> =
+        offsetPaths(paths, delta, JoinType.Miter, 2.0, 0.0)
+
+
+    /// Same as `offset`
+    let inflate (delta:float) (paths:Paths64<'Z>) : Paths64<'Z> =
+        offset delta paths
+
+    /// Same as `Klipper.inflateOpenPaths`.
+    /// Offsets open paths (lines) by `delta`, with the specified join type for corners and end type for line ends.
+    /// The provide paths are considered open and offset to both sides of the polyline and looped around the ends of the line.
+    /// (unless EndType.Joined is used, in which case the ends of both offsets are joined instead of looped around).
+    /// Basically creating a polyline with a thickness.
+    /// <param name="delta">The distance to offset.</param>
+    /// <param name="joinType">The type of join to use for corners (Miter, Square, Bevel, Round).</param>
+    /// <param name="endType">The type of end to use for line ends (Butt, Square or Round) for open paths.
+    /// EndType.Joined if the ends should be joined instead of looped around).
+    /// EndType.Polygon would only be valid for offsetting to one side.</param>
+    /// <param name="miterLimit">The maximum distance in multiples of delta that vertices can be offset from their original positions before squaring is applied.</param>
+    /// <param name="arcTolerance">The tolerance for arc approximation when using Round joins.</param>
+    let offsetBothSides(paths:Paths64<'Z>, delta:float, joinType:JoinType, endType:EndType, miterLimit:float, arcTolerance:float) : Paths64<'Z> =
+        let solution = Paths64<'Z>()
+        if isNull' paths then
+            solution
+        else
+            if endType = EndType.Polygon then
+                raise (ArgumentException "Klip.offsetBothSides: endType cannot be EndType.Polygon for offsetBothSides.")
+            let co = ClipperOffset<'Z>(miterLimit, arcTolerance)
+            co.AddPaths(paths, joinType, endType)
+            co.Execute(delta, solution)
+            solution
+
+
+    /// Same as `offsetBothSides`
+    let offsetOpenPaths (paths:Paths64<'Z>, delta:float, joinType:JoinType, endType:EndType, miterLimit:float, arcTolerance:float) : Paths64<'Z> =
+        offsetBothSides(paths, delta, joinType, endType, miterLimit, arcTolerance)
+
+
+    // #endregion
+    // #region Klipper utilities
+
+    /// Returns a new Path64 with the order of the vertices and Z values if present reversed.
+    let reversePath (p: Path64<'Z>) : Path64<'Z> =
+        OffsetInternal.reversePath p
+
+    /// Checks if the path has a positive orientation.
+    /// That means, if the signed area of the path is positive.
+    /// That means a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    /// Also returns `true` for degenerate paths with zero area.
+    let hasPositiveOrientation (p: Path64<'Z>) : bool =
+        p.SignedArea >= 0.0
+
+
+    /// Checks if the path has a positive orientation.
+    /// That means, if the signed area of the path is positive.
+    /// That means a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    /// Returns `false` for degenerate paths with zero area, as they are not considered to have a valid orientation.
+    let isCounterClockwise (p: Path64<'Z>) =
+        p.SignedArea > 0.0
+
+
+    /// Ensures that the path has a positive orientation by checking its signed area and reversing it if necessary.
+    let ensurePositiveOrientation (p: Path64<'Z>) : Path64<'Z> =
+        if hasPositiveOrientation p then
+            p
+        else
+            reversePath p
+
+
+
 
 
     // #endregion
