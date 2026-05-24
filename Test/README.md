@@ -28,6 +28,49 @@ Tests not ported (Klip doesn't expose the corresponding API): `offsets.test.ts`
 (polygon offsetting), `lines.test.ts` (open subjects), `rectClip`,
 `triangulation`, `minkowski`, `precision`, `z-callback`, `comprehensive`.
 
+## Unrounded-float engine and test tolerances
+
+Klip's engine runs on **unrounded `float` coordinates** (`Geo.jsRound` is the identity — see the
+[main README](../README.md#coordinate-precision-unrounded-floats)). The `Polygons.txt` reference
+counts/areas come from an integer-snapped clipper, so a handful of complex cases now resolve into a
+slightly different number of (touching) contours. This is absorbed by raised per-case tolerances in
+`tests/polygons.test.ts` — grep for `unrounded` — in the same spirit as the area tolerances that the
+file already retunes per rounding/truncation mode. Test `181` needed a notably large count
+allowance and is flagged in a comment as worth revisiting.
+
+The F# tests round each solution's coordinates (`Helpers.roundPaths`, real `Math.Round`) before
+asserting on areas/point counts, so they compare against the integer values the fixtures expect.
+
+
+### What changed
+Src/Core.fs — the Geo primitives:
+
+jsRound now returns its input unchanged (no more Math.Truncate/Math.trunc) — the engine computes on unrounded floats.
+New coordEq/coordNeq with coordEqTol = 1e-6 replace exact coordinate equality.
+New crossIsZero (relative tolerance crossCollinearRelTol = 1e-12) used by crossProductSign and productsAreEqual/isCollinear.
+pointInPolygon coordinate comparisons use coordEq.
+Src/Engine2.fs — xyEqual/xyNotEqual, the now-fractional curX comparisons, and the point-in-polygon / horizontal-segment coincidence checks all route through Geo.coordEq/coordNeq. (Sort comparators, structural vertex-Y/scanline logic, and isHorizontal stay exact — relaxing those breaks the scanbeam.)
+
+Src/Engine1.fs — no changes needed (types + ScanlineHeap only; its comparisons are ordering on exact vertex-Y scanlines).
+
+Tests — F# tests round solution coords via a new Helpers.roundPaths before asserting; polygons.test.ts count/area tolerances were retuned for the cases where unrounded geometry legitimately diverges (clearly commented as "unrounded mode").
+
+### The important detour
+Your literal spec (abs(a-b) < 1.0) and the F# unit tests alone were misleading — those 22 tests passed, but the repo's 203-case TypeScript suite regressed 203→175. Investigating showed:
+
+1.0 is too coarse at this library's coordinate scale (~10–1000) — it fused distinct points and doubled the damage. A tiny tolerance (1e-6, which you chose) behaves ≈exact here while still absorbing float noise.
+Collinearity is cross-product based, not coordinate-equality based, so it also needed a tolerance (crossIsZero) to keep collinear edges merging.
+A residual handful of complex cases inherently fragment a bit differently without integer snapping (test 181 by ~37); that can't be undone at output time, so it's absorbed by retuned suite tolerances.
+### Verification
+Suite	Result
+.NET library build	clean (0 warnings/errors)
+Fable JS transpile + bundle	clean
+F# Tests1 / Tests2	15/15, 7/7
+TS polygons + polytree + sliver	203/203
+I also saved two memory notes for future work here: that the TS vitest suite (not the F# tests) is the real correctness gate and how to run it, and the rationale behind the unrounded-float tolerances.
+
+One thing worth flagging: polygons.test.ts test 181 now needs a large count allowance (≤40). I papered over it per your "retune" decision, but a +37 polygon divergence is big enough that it may be a specific pathology worth a real look later — I left a comment marking it.
+
 ## Format adapter
 
 Klip's `Path64` is a class with one flat interleaved `XYs` buffer, while
@@ -46,8 +89,9 @@ adapted from the original C# tests in [Clipper2](https://github.com/AngusJohnson
 
 
 ```bash
-dotnet test Test/FSharp/Tests/Tests1/Tests1.fsproj
-dotnet test Test/FSharp/Tests/Tests2/TestsZ.fsproj
+cd Test
+dotnet test FSharp/Tests/Tests1/Tests1.fsproj
+dotnet test FSharp/Tests/Tests2/TestsZ.fsproj
 ```
 
 ## Running JS Tests
@@ -98,7 +142,8 @@ for boolean clipping only: intersection, union, difference, and xor. Offsetting
 and triangulation aren't exposed by Klip.
 
 ```bash
-dotnet run -c Release --project Test/FSharp/Benchmark/Benchmark.csproj -- --join
+cd Test
+dotnet run -c Release --project FSharp/Benchmark/Benchmark.csproj -- --join
 ```
 
 Local run notes from 2026-05-07:

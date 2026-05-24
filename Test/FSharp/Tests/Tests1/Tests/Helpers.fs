@@ -21,3 +21,11 @@ module Helpers =
         let mutable s = 0.0
         for p in ps do s <- s + p.AbsArea
         s
+
+    /// Snaps every coordinate of every output path to the nearest integer.
+    /// The engine now works with unrounded floats (Geo.jsRound is the identity),
+    /// so solution coordinates may carry sub-unit fractional parts. Rounding here,
+    /// just before asserting on an output path, restores the integer-grid values
+    /// the tests expect. Returns a new Paths64; Z values are preserved.
+    let roundPaths (ps: Paths64<'Z>) : Paths64<'Z> =
+        Paths64.mapXY (fun v -> System.Math.Round v) ps

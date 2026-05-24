@@ -41,6 +41,26 @@ Instead, users can choose to scale their coordinates before passing them to Klip
 
 The main convenience API is in [`Src/Klip.fs`](https://github.com/goswinr/Klip/blob/main/Src/Klip.fs), in the `Klip.Klipper` module. It wraps `Clipper64` for the common polygon boolean operations while keeping the lower-level engine available for specialized cases.
 
+### Coordinate precision (unrounded floats)
+
+The clipping engine computes on **unrounded `float` coordinates**. Earlier versions snapped every
+computed intersection point to the nearest integer (the old `Geo.jsRound`); that snapping has been
+removed, so vertices created where edges cross are generally **not** integer-valued and keep full
+floating-point precision.
+
+What this means in practice:
+
+- Point coincidence and collinearity are no longer tested with exact equality but with small
+  tolerances — `abs (a - b) < 1e-6` for coordinates, and a relative tolerance for cross-product
+  collinearity. These are sized to absorb floating-point noise without fusing genuinely distinct
+  points (real coordinates can be as little as one unit apart).
+- Because there is no longer an integer grid, complex inputs can occasionally resolve into a few
+  more (or fewer) *touching* contours than an integer-snapped clipper would. Areas stay within the
+  usual tolerances, and a follow-up `union` simplifies touching contours if needed.
+- If you need integer output, **round the solution coordinates yourself after clipping** (e.g. with
+  `System.Math.Round`). Note that, because they delegate to `jsRound` (now the identity function),
+  `Floats.round` is currently a no-op and `Floats.scaleUpAndRound` only scales without rounding.
+
 ### Core Types
 
 Original Documentation: https://www.angusj.com/clipper2

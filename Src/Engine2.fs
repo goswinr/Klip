@@ -152,10 +152,13 @@ module internal Clip =
         localMinima.vertex === other.vertex
 
     let inline xyEqual(ax: float, ay: float, bx: float, by: float) : bool =
-        ax = bx && ay = by
+        // previously to match Clipper2:
+        // ax = bx && ay = by
+        Geo.coordEq ax bx && Geo.coordEq ay by
 
     let inline xyNotEqual(ax: float, ay: float, bx: float, by: float) : bool =
-        ax <> bx || ay <> by
+        // ax <> bx || ay <> by
+        Geo.coordNeq ax bx || Geo.coordNeq ay by
 
     let inline isOdd (v: int) : bool =
         (v &&& 1) <> 0
@@ -827,13 +830,13 @@ type Clipper64<'Z>() =
     let getCleanPath (op: OutPt<'Z>) : Path64<'Z> =
         let result = Geo.emptyPath64<'Z> hasZValues
         let mutable op2 = op
-        while op2.next =!= op && ((op2.x = op2.next.x && op2.x = op2.prev.x) || (op2.y = op2.next.y && op2.y = op2.prev.y)) do
+        while op2.next =!= op && ((Geo.coordEq op2.x op2.next.x && Geo.coordEq op2.x op2.prev.x) || (Geo.coordEq op2.y op2.next.y && Geo.coordEq op2.y op2.prev.y)) do
             op2 <- op2.next
         result.Add(op2.x, op2.y, op2.z)
         let mutable prevOp = op2
         op2 <- op2.next
         while op2 =!= op do
-            if (op2.x <> op2.next.x || op2.x <> prevOp.x) && (op2.y <> op2.next.y || op2.y <> prevOp.y) then
+            if (Geo.coordNeq op2.x op2.next.x || Geo.coordNeq op2.x prevOp.x) && (Geo.coordNeq op2.y op2.next.y || Geo.coordNeq op2.y prevOp.y) then
                 result.Add(op2.x, op2.y, op2.z)
                 prevOp <- op2
             op2 <- op2.next
@@ -847,13 +850,13 @@ type Clipper64<'Z>() =
             let mutable op2 = opL
             let mutable loopOn = true
             while loopOn do
-                if opL.y <> ptY then
+                if Geo.coordNeq opL.y ptY then
                     loopOn <- false
                 else
                     opL <- opL.next
                     if opL === op2 then
                         loopOn <- false
-            if opL.y = ptY then
+            if Geo.coordEq opL.y ptY then
                 PointInPolygonResult.IsOutside
             else
                 let mutable isAbove = opL.y < ptY
@@ -872,8 +875,8 @@ type Clipper64<'Z>() =
                     if op2b === opL then
                         () // break outer
                     else
-                        if op2b.y = ptY then
-                            if op2b.x = ptX ||(op2b.y = op2b.prev.y && ((ptX < op2b.prev.x) <> (ptX < op2b.x))) then
+                        if Geo.coordEq op2b.y ptY then
+                            if Geo.coordEq op2b.x ptX ||(Geo.coordEq op2b.y op2b.prev.y && ((ptX < op2b.prev.x) <> (ptX < op2b.x))) then
                                 result <- PointInPolygonResult.IsOn
                                 settled <- true
                             else
@@ -950,7 +953,7 @@ type Clipper64<'Z>() =
     // ---- Horizontal segments / joins ----
 
     let setHorzSegHeadingForward (hs: HorzSegment<'Z>, opP: OutPt<'Z>, opN: OutPt<'Z>) : bool =
-        if opP.x = opN.x then
+        if Geo.coordEq opP.x opN.x then
             false
         else
             if opP.x < opN.x then
@@ -974,14 +977,14 @@ type Clipper64<'Z>() =
         if outrecHasEdges then
             let opA = outrec.pts
             let opZ = opA.next
-            while opP =!= opZ && opP.prev.y = currY do
+            while opP =!= opZ && Geo.coordEq opP.prev.y currY do
                 opP <- opP.prev
-            while opN =!= opA && opN.next.y = currY do
+            while opN =!= opA && Geo.coordEq opN.next.y currY do
                 opN <- opN.next
         else
-            while opP.prev =!= opN && opP.prev.y = currY do
+            while opP.prev =!= opN && Geo.coordEq opP.prev.y currY do
                 opP <- opP.prev
-            while opN.next =!= opP && opN.next.y = currY do
+            while opN.next =!= opP && Geo.coordEq opN.next.y currY do
                 opN <- opN.next
 
         let result = setHorzSegHeadingForward(hs, opP, opN) && isNull' hs.leftOp.horz
@@ -1187,7 +1190,7 @@ type Clipper64<'Z>() =
     // ---- AEL insertion / validation ----
 
     let rec isValidAelOrder (resident: ActiveEdge<'Z>, newcomer: ActiveEdge<'Z>) : bool =
-        if newcomer.curX <> resident.curX then
+        if Geo.coordNeq newcomer.curX resident.curX then
             newcomer.curX > resident.curX
         else
             let d = Geo.crossProductSign (resident.topX, resident.topY, newcomer.botX, newcomer.botY, newcomer.topX, newcomer.topY)
@@ -1450,7 +1453,7 @@ type Clipper64<'Z>() =
                 if checkCurrX then
                     Clip.perpendicDistFromLineSqrdGreaterThanQuarter (ptX, ptY, prev.botX, prev.botY, prev.topX, prev.topY)
                 else
-                    ae.curX <> prev.curX
+                    Geo.coordNeq ae.curX prev.curX
             if earlyExit then
                 ()
             elif not (Geo.isCollinear (ae.topX, ae.topY, ptX, ptY, prev.topX, prev.topY)) then
@@ -1482,7 +1485,7 @@ type Clipper64<'Z>() =
                 if checkCurrX then
                     Clip.perpendicDistFromLineSqrdGreaterThanQuarter (ptX, ptY, next.botX, next.botY, next.topX, next.topY)
                 else
-                    ae.curX <> next.curX
+                    Geo.coordNeq ae.curX next.curX
             if earlyExit then
                 ()
             elif not (Geo.isCollinear (ae.topX, ae.topY, ptX, ptY, next.topX, next.topY)) then
@@ -1574,7 +1577,7 @@ type Clipper64<'Z>() =
                             ae1.outrec.backEdge <- null'()
                         ae1.outrec <- null'()
                     // horizontal edges can pass under open paths at a LocMins
-                    elif ptX = ae1.localMin.vertex.x && ptY = ae1.localMin.vertex.y && not (Clip.isOpenEndVertex ae1.localMin.vertex) then
+                    elif Geo.coordEq ptX ae1.localMin.vertex.x && Geo.coordEq ptY ae1.localMin.vertex.y && not (Clip.isOpenEndVertex ae1.localMin.vertex) then
                         // find the other side of the LocMin and
                         // if it's 'hot' join up with it ...
                         let ae3 = findEdgeWithMatchingLocMin ae1
@@ -1960,7 +1963,7 @@ type Clipper64<'Z>() =
                     if (vertexMax =!= horz.vertexTop) || Clip.isOpenEnd horz then
                         if (isLeftToRight && ae.curX > rightX2) || (not isLeftToRight && ae.curX < leftX2) then
                             localBreak <- true
-                        elif ae.curX = horz.topX && not (Clip.isHorizontal ae) then
+                        elif Geo.coordEq ae.curX horz.topX && not (Clip.isHorizontal ae) then
                             let nextPt = Clip.nextVertex horz
                             if Clip.isOpen ae && not (Clip.isSamePolyType(ae, horz)) && not (Clip.isHotEdge ae) then
                                 if (isLeftToRight && Clip.topX(ae, nextPt.y) > nextPt.x) || (not isLeftToRight && Clip.topX(ae, nextPt.y) < nextPt.x) then
@@ -2175,17 +2178,17 @@ type Clipper64<'Z>() =
                     else
                         let currY = hs1.leftOp.y
                         if hs1.leftToRight then
-                            while hs1.leftOp.next.y = currY && hs1.leftOp.next.x <= hs2.leftOp.x do
+                            while Geo.coordEq hs1.leftOp.next.y currY && hs1.leftOp.next.x <= hs2.leftOp.x do
                                 hs1.leftOp <- hs1.leftOp.next
-                            while hs2.leftOp.prev.y = currY && hs2.leftOp.prev.x <= hs1.leftOp.x do
+                            while Geo.coordEq hs2.leftOp.prev.y currY && hs2.leftOp.prev.x <= hs1.leftOp.x do
                                 hs2.leftOp <- hs2.leftOp.prev
                             horzJoinList.Add{
                                         op1 = Clip.duplicateOp(hs1.leftOp, true)
                                         op2 = Clip.duplicateOp(hs2.leftOp, false) }
                         else
-                            while hs1.leftOp.prev.y = currY && hs1.leftOp.prev.x <= hs2.leftOp.x do
+                            while Geo.coordEq hs1.leftOp.prev.y currY && hs1.leftOp.prev.x <= hs2.leftOp.x do
                                 hs1.leftOp <- hs1.leftOp.prev
-                            while hs2.leftOp.next.y = currY && hs2.leftOp.next.x <= hs1.leftOp.x do
+                            while Geo.coordEq hs2.leftOp.next.y currY && hs2.leftOp.next.x <= hs1.leftOp.x do
                                 hs2.leftOp <- hs2.leftOp.next
                             horzJoinList.Add{
                                         op1 = Clip.duplicateOp(hs2.leftOp, true)

@@ -338,18 +338,55 @@ module internal Geo =
             Path64<'Z>(ResizeArray<float>(count), None)
 
 
-    /// Rounds a float to the nearest integer, using
-    /// `Math.round` in Fable and `Math.Round` in .NET.
-    ///  While JS does Round-half-towards-positive-infinity.
-    /// .NET does Rounds-half-to-even, (Banker's Rounding).
+    /// Formerly rounded a float to the nearest integer to keep all coordinates on
+    /// the integer grid. The engine now works with unrounded floats, so this is the
+    /// identity function: it simply returns its input unchanged. It is kept (instead
+    /// of removing the call sites) so the few remaining call sites read intentionally.
     let inline jsRound (x: float) : float =
-        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
-            // Fable.Core.JsInterop.emitJsExpr x "Math.round($0)"
-            Fable.Core.JsInterop.emitJsExpr x "Math.trunc($0)" // apparently faster? Tests still pass
-        #else
-            // Math.Round x
-            Math.Truncate x // apparently faster? Tests still pass
-        #endif
+        x
+        // previously to match Clipper2:
+        // #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+        //     // Fable.Core.JsInterop.emitJsExpr x "Math.round($0)"
+        //     Fable.Core.JsInterop.emitJsExpr x "Math.trunc($0)" // apparently faster? Tests still pass
+        // #else
+        //     // Math.Round x
+        //     Math.Truncate x // apparently faster? Tests still pass
+        // #endif
+
+
+    // new for exact floats:
+
+    /// Coordinate-equality tolerance.
+    /// Intersection coordinates are no longer snapped to the integer grid, so two
+    /// coordinates that represent "the same point" can differ by floating-point
+    /// rounding error. Plain equality (`a = b`) is therefore replaced by
+    /// `abs (a - b) < coordEqTol`. The tolerance is deliberately tiny: it must absorb
+    /// float noise without fusing genuinely-distinct points (real coordinates can be
+    /// as little as 1 unit apart), so it stays well below 1.0.
+    [<Literal>]
+    let coordEqTol = 1e-6
+
+    let inline coordEq (a: float) (b: float) : bool =
+        abs (a - b) < coordEqTol
+
+    /// The negation of [coordEq]: true when two coordinates are at least [coordEqTol] apart.
+    let inline coordNeq (a: float) (b: float) : bool =
+        abs (a - b) >= coordEqTol
+
+    /// Relative tolerance for treating a cross product `prod1 - prod2` (= a*b - c*d)
+    /// as zero, i.e. three points as collinear. Coordinates are no longer snapped to
+    /// the integer grid, so an intersection point computed to lie on an edge is off by
+    /// floating-point rounding error and the former exact test (a*b = c*d) almost never
+    /// holds. Because the products scale with the square of the coordinates, a *relative*
+    /// tolerance absorbs that error at any scale (small test coords up to ~1e7 sliver
+    /// coords) while staying far below any genuine, non-collinear angle.
+    [<Literal>]
+    let crossCollinearRelTol = 1e-12
+
+    /// True when the two delta-products are equal to within [crossCollinearRelTol],
+    /// i.e. the underlying cross product is effectively zero (collinear).
+    let inline crossIsZero (prod1: float) (prod2: float) : bool =
+        abs (prod1 - prod2) <= crossCollinearRelTol * (abs prod1 + abs prod2)
 
 
     let inline crossProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
@@ -357,16 +394,14 @@ module internal Geo =
         let b = pt3Y - pt2Y
         let c = pt2Y - pt1Y
         let d = pt3X - pt2X
-        // Fast check for safe integer range
-        // Using Math.Abs inline allows short-circuiting
         let prod1 = a * b
         let prod2 = c * d
-        if prod1 > prod2 then
-            1
-        elif prod1 < prod2 then
-            -1
-        else
+        if crossIsZero prod1 prod2 then
             0
+        elif prod1 > prod2 then
+            1
+        else
+            -1
 
 
     let segsIntersectNotInclusive(seg1aX: float, seg1aY: float, seg1bX: float, seg1bY: float, seg2aX: float, seg2aY: float, seg2bX: float, seg2bY: float) : bool =
@@ -379,11 +414,11 @@ module internal Geo =
         (s3 <> 0 && s4 <> 0 && s3 <> s4)
 
 
-    // Returns true if (and only if) a*b == c*d.
-    // When checking colinearity with very large coordinate values this is more
-    // accurate than using crossProduct (see TS Core.ts).
+    // Returns true when a*b == c*d to within [crossCollinearRelTol].
+    // (Formerly an exact comparison; relaxed to a relative tolerance now that
+    // coordinates carry floating-point error instead of lying on the integer grid.)
     let inline productsAreEqual (a: float, b: float, c: float, d: float) : bool =
-        a * b = c * d
+        crossIsZero (a * b) (c * d)
 
     let isCollinear (pt1X: float, pt1Y: float, sharedX: float, sharedY: float, pt2X: float, pt2Y: float) : bool =
         let a = sharedX - pt1X
@@ -417,7 +452,7 @@ module internal Geo =
             let inline getX i = coords[i * 2]
             let inline getY i = coords[i * 2 + 1]
             let mutable start = 0
-            while start < len && getY start = ptY do
+            while start < len && coordEq (getY start) ptY do
                 start <- start + 1
             if start = len then
                 PointInPolygonResult.IsOutside
@@ -457,9 +492,9 @@ module internal Geo =
                             let prevX = getX prevIdx
                             let prevY = getY prevIdx
 
-                            if currY = ptY then
-                                if currX = ptX ||
-                                   (currY = prevY && ((ptX < prevX) <> (ptX < currX))) then
+                            if coordEq currY ptY then
+                                if coordEq currX ptX ||
+                                   (coordEq currY prevY && ((ptX < prevX) <> (ptX < currX))) then
                                     hasResult <- true
                                     result <- PointInPolygonResult.IsOn
                                     loopOn <- false
