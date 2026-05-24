@@ -71,6 +71,22 @@ module internal Null =
 [<RequireQualifiedAccess>]
 module internal Rarr =
 
+    /// returns resizeArray.Count , but optimized in Fable
+    let inline len  (resizeArray: ResizeArray<'T>) : int =
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsExpr (resizeArray) "$0.length" // avoid call to count() in fable lib
+        #else
+            resizeArray.Count
+        #endif
+
+    /// returns resizeArray.Count - 1 , but optimized in Fable
+    let inline lastIdx  (resizeArray: ResizeArray<'T>) : int =
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsExpr (resizeArray) "$0.length - 1" // avoid call to count() in fable lib
+        #else
+            resizeArray.Count - 1
+        #endif
+
     /// this is more efficient than ResizeArray.Clear() in Fable,
     /// which emits .splice(0)
     let inline clear (arr: ResizeArray<'T>) : unit =
@@ -95,8 +111,22 @@ module internal Rarr =
         #endif
 
     let inline iter (mapping: 'T -> unit) (resizeArray: ResizeArray<'T>) : unit =
-        for i = 0 to resizeArray.Count - 1 do
+        for i = 0 to resizeArray |> lastIdx do
             mapping resizeArray[i]
+
+    let inline getIdx (i: int) (arr: ResizeArray<'T>) : 'T =
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsExpr (arr, i) "$0[$1]"
+        #else
+            arr[i]
+        #endif
+
+    let inline setIdx (i: int) (value: 'T) (arr: ResizeArray<'T>) : unit =
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsStatement (arr, i, value) "$0[$1] = $2"
+        #else
+            arr[i] <- value
+        #endif
 
 
 
@@ -149,19 +179,22 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
         zs.IsSome
 
 
-    // /// Scales all points in the path by the given factor.
-    // /// This is a mutating operation that modifies the path in place.
-    // member _.Scale(factor: float) : unit =
-    //     let coords = xys
-    //     for i = 0 to coords.Count - 1 do
-    //         coords[i] <- jsRound(coords[i] * factor)
+    /// Returns true if the path has no points, false otherwise.
+    member _.IsEmpty : bool =
+        xys.Count = 0
 
+
+    /// Returns true if the path has three or more points
+    /// (that is, six or more coordinates), false otherwise.
+    /// A path needs at least three points to be a valid polygon, so this is a common check.
+    /// But it might still have zero Area if the points are collinear.
+    member _.HasThreeOrMorePoints : bool =
+        xys.Count >= 6
 
     /// Gets the number of points in the path.
     /// This is half the length of the XYs ResizeArray, since X and Y are interleaved.
     member _.PointCount : int =
-        xys.Count / 2
-
+        Rarr.len xys / 2
 
     /// Gets the X ordinate at the given point index.
     /// Accesses the internal XYs ResizeArray via xys[index * 2].
@@ -180,10 +213,11 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
         | Some zs -> zs.[index]
         | None -> raise (InvalidOperationException "Path64.GetZ: This path does not have Z values.")
 
-    /// Computes the total length of the path,
-    /// which is the sum of the distances between consecutive points.
+    /// Computes the total length of the path, considering it as an open path.
+    /// Returns the sum of the distances between consecutive points.
+    /// It does not include the distance from the last point back to the first point.
     member _.PathLength : float =
-        let cnt = xys.Count
+        let cnt = Rarr.len xys
         if cnt < 4 then
             0.0
         else
@@ -191,6 +225,29 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
             let mutable prevX = xys[0]
             let mutable prevY = xys[1]
             let mutable i = 2
+            while i <= cnt - 2 do
+                let x = xys[i]
+                let y = xys[i + 1]
+                i <- i + 2
+                let dx = x - prevX
+                let dy = y - prevY
+                total <- total + sqrt(dx * dx + dy * dy)
+                prevX <- x
+                prevY <- y
+            total
+
+    /// Computes the total length of the path, considering it as a closed path.
+    /// Returns the sum of the distances between consecutive points,
+    /// including the distance from the last point back to the first point.
+    member _.ClosedPathLength : float =
+        let cnt = xys.Count
+        if cnt < 4 then
+            0.0
+        else
+            let mutable total = 0.0
+            let mutable prevX = xys[xys.Count - 2] // start at last point's X
+            let mutable prevY = xys[xys.Count - 1]
+            let mutable i = 0 // start at first point
             while i <= xys.Count - 2 do
                 let x = xys[i]
                 let y = xys[i + 1]
@@ -201,6 +258,36 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
                 prevX <- x
                 prevY <- y
             total
+
+    /// Computes the area of the path using the shoelace formula.
+    /// Positive for CCW in Cartesian / CW in screen coords.
+    member p.SignedArea : float =
+        // https://en.wikipedia.org/wiki/Shoelace_formula
+        let cnt = p.PointCount
+        if cnt < 3 then
+            0.0
+        else
+            let coords = p.XYs
+            let mutable total = 0.0
+            let mutable prevCoord = (cnt - 1) * 2
+            let mutable prevX = coords[prevCoord]
+            let mutable prevY = coords[prevCoord + 1]
+            for i = 0 to cnt - 1 do
+                let coord = i * 2
+                let x = coords[coord]
+                let y = coords[coord + 1]
+                total <- total + (prevY + y) * (prevX - x)
+                prevX <- x
+                prevY <- y
+            total * 0.5
+
+    /// Computes the area of the path.
+    /// This is always a positive value,
+    /// No matter the clockwise or counterclockwise direction of the path.
+    member inline p.AbsArea : float =
+        abs p.SignedArea
+
+
 
     /// Adds a new point and a Z value to the path.
     member internal _.Add(x: float, y: float, z: 'Z) : unit =
@@ -243,6 +330,13 @@ module internal Geo =
         else
             Path64<'Z>(ResizeArray<float>(), None)
 
+        /// For internal use only, always return 'Z even when it should be unit
+    let inline emptyPath64Sized<'Z> (hasZ:bool) (count:int) : Path64<'Z> =
+        if hasZ then
+            Path64<'Z>(ResizeArray<float>(count), Some (ResizeArray<'Z>(count)))
+        else
+            Path64<'Z>(ResizeArray<float>(count), None)
+
 
     /// Rounds a float to the nearest integer, using
     /// `Math.round` in Fable and `Math.Round` in .NET.
@@ -250,9 +344,11 @@ module internal Geo =
     /// .NET does Rounds-half-to-even, (Banker's Rounding).
     let inline jsRound (x: float) : float =
         #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
-            Fable.Core.JsInterop.emitJsExpr x "Math.round($0)"
+            // Fable.Core.JsInterop.emitJsExpr x "Math.round($0)"
+            Fable.Core.JsInterop.emitJsExpr x "Math.trunc($0)" // apparently faster? Tests still pass
         #else
-            Math.Round x
+            // Math.Round x
+            Math.Truncate x // apparently faster? Tests still pass
         #endif
 
 
@@ -311,28 +407,6 @@ module internal Geo =
             -1
         else
             0
-
-    // https://en.wikipedia.org/wiki/Shoelace_formula
-    let area (path: Path64<'Z>) : float =
-        let cnt = path.PointCount
-        if cnt < 3 then 0.0
-        else
-            let coords = path.XYs
-            let mutable total = 0.0
-            let mutable prevCoord = (cnt - 1) * 2
-            let mutable prevX = coords[prevCoord]
-            let mutable prevY = coords[prevCoord + 1]
-            for i = 0 to cnt - 1 do
-                let coord = i * 2
-                let x = coords[coord]
-                let y = coords[coord + 1]
-                total <- total + (prevY + y) * (prevX - x)
-                prevX <- x
-                prevY <- y
-            total * 0.5
-
-
-
 
     let pointInPolygon (ptX: float, ptY: float, polygon: Path64<'Z>) : PointInPolygonResult =
         let len = polygon.PointCount
@@ -488,6 +562,26 @@ module internal Geo =
                 let midX = jsRound((left + right) * 0.5)
                 let midY = jsRound((top + bottom) * 0.5)
                 pointInPolygon (midX, midY, path2) <> PointInPolygonResult.IsOutside
+
+    /// Reverses a path (returns a new Path64).
+    let reversePath (path: Path64<'Z>) : Path64<'Z> =
+        let cnt = path.PointCount
+        let hasZs = path.HasZs
+        let result = emptyPath64Sized<'Z> hasZs cnt
+        let xys = path.XYs
+        let resXYs = result.XYs
+        if hasZs then
+            let pathZs = path.Zs.Value
+            let resZs = result.Zs.Value
+            for i = cnt - 1 downto 0 do
+                resXYs.Add(xys[i * 2])
+                resXYs.Add(xys[i * 2 + 1])
+                resZs.Add(pathZs[i])
+        else
+            for i = cnt - 1 downto 0 do
+                resXYs.Add(xys[i * 2])
+                resXYs.Add(xys[i * 2 + 1])
+        result
 
 
 

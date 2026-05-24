@@ -494,7 +494,7 @@ module internal Clip =
         else
             if isNull' toOr.splits then
                 toOr.splits <- ResizeArray<int>()
-            for i=0 to fromOr.splits.Count - 1 do
+            for i=0 to fromOr.splits |> Rarr.lastIdx do
                 let idx = fromOr.splits[i]
                 if idx <> toOr.idx then
                     toOr.splits.Add(idx)
@@ -716,16 +716,16 @@ type Clipper64<'Z>() =
         if useScanlineArray then
             let mutable found = false
             let mutable i = 0
-            while i < scanlineArr.Count && not found do
+            while i < Rarr.len scanlineArr  && not found do
                 if scanlineArr[i] = y then
                     found <- true
                 else
                     i <- i + 1
             if not found then
                 scanlineArr.Add(y)
-                if scanlineArr.Count > 64 then
+                if scanlineArr |> Rarr.len > 64 then
                     // upgradeScanlineStructureFromArray() inlined:
-                    for i = 0 to scanlineArr.Count - 1 do
+                    for i = 0 to scanlineArr |> Rarr.lastIdx do
                         let y = scanlineArr[i]
                         scanlineSet.Add(y) |> ignore
                         scanlineHeap.Push(y)
@@ -739,10 +739,10 @@ type Clipper64<'Z>() =
     // Returns the next scanline Y coordinate, or NaN if there are no more.
     let popScanline () : float =
         if useScanlineArray then
-            if scanlineArr.Count = 0 then
+            if scanlineArr |> Rarr.len = 0 then
                 Double.NaN
             else
-                let len = scanlineArr.Count
+                let len = scanlineArr |> Rarr.len
                 let mutable bestIdx = 0
                 let mutable bestY = scanlineArr[0]
                 for i = 1 to len - 1 do
@@ -786,8 +786,8 @@ type Clipper64<'Z>() =
         scanlineArr|> Rarr.clear
         // Heuristic: local minima count correlates with number of scanlines and
         // scanline insert/pop activity. For glyph-like inputs, this is typically small.
-        useScanlineArray <- minimaList.Count <= 16
-        for i = minimaList.Count - 1 downto 0 do
+        useScanlineArray <- minimaList |> Rarr.len <= 16
+        for i = minimaList |> Rarr.lastIdx downto 0 do
             insertScanline minimaList[i].vertex.y
 
         currentBotY <- 0.0
@@ -817,7 +817,7 @@ type Clipper64<'Z>() =
             splits = null'()
             recursiveSplit = null'()
         }
-        result.idx <- outrecList.Count
+        result.idx <- outrecList |> Rarr.len
         outrecList.Add(result)
         result
 
@@ -1829,7 +1829,7 @@ type Clipper64<'Z>() =
                     leftLoop <- rEnd
                 left <- sel
 
-            intersectList.Count > 0
+            intersectList |> Rarr.len > 0
 
 
 
@@ -1843,7 +1843,7 @@ type Clipper64<'Z>() =
         // printfn $"sorting {intersectList.Count} intersections"
         intersectList.Sort Clip.intersectListSort
 
-        for i = 0 to intersectList.Count - 1 do
+        for i = 0 to intersectList |> Rarr.lastIdx do
             if not (Clip.edgesAdjacentInAEL(intersectList[i])) then
                 let mutable j = i + 1
                 while not (Clip.edgesAdjacentInAEL(intersectList[j])) do
@@ -2156,7 +2156,7 @@ type Clipper64<'Z>() =
     let convertHorzSegsToJoins () : unit =
         let horzSegList = horzSegList // avoiding access via 'this' in JS
         let mutable k = 0
-        for i = 0 to horzSegList.Count - 1 do
+        for i = 0 to horzSegList |> Rarr.lastIdx do
             let hs = horzSegList[i]
             if updateHorzSegment hs then
                 k <- k + 1
@@ -2193,7 +2193,7 @@ type Clipper64<'Z>() =
 
     let processHorzJoins () : unit =
         let horzJoinList = horzJoinList // avoiding access via 'this' in JS
-        for i = 0 to horzJoinList.Count - 1 do
+        for i = 0 to horzJoinList |> Rarr.lastIdx do
             let hoj = horzJoinList[i]
             let or1 = Clip.getRealOutRec hoj.op1.outrec
             let or2 = Clip.getRealOutRec hoj.op2.outrec
@@ -2337,7 +2337,7 @@ type Clipper64<'Z>() =
                     while isNotNull ae do
                         doHorizontal ae
                         ae <- popHorz()
-                    if horzSegList.Count > 0 then
+                    if horzSegList |> Rarr.len > 0 then
                         convertHorzSegsToJoins()
                         horzSegList|> Rarr.clear
                     currentBotY <- y
@@ -2524,7 +2524,7 @@ type Clipper64<'Z>() =
     let rec checkSplitOwner (outrec: OutRec<'Z>, splits: ResizeArray<int>) : bool =
         let mutable result = false
         let mutable i = 0
-        while (not result) && i < splits.Count do
+        while (not result) && i < Rarr.len splits do
             let mutable split = outrecList[splits[i]]
             if isNull' split.pts && isNotNull split.splits &&
                checkSplitOwner(outrec, split.splits) then
@@ -2561,7 +2561,7 @@ type Clipper64<'Z>() =
         // outrecList.length is not static here because
         // CleanCollinear can indirectly add additional OutRec<'Z>
         let mutable i = 0
-        while i < outrecList.Count do
+        while i < Rarr.len outrecList do
             let outrec = outrecList[i]
             i <- i + 1
             if isNotNull outrec.pts then
@@ -2608,7 +2608,7 @@ type Clipper64<'Z>() =
         // checkBounds below can indirectly add additional
         // OutRec<'Z> (via FixOutRecPts & CleanCollinear)
         let mutable i = 0
-        while i < outrecList.Count do
+        while i < Rarr.len outrecList do
             let outrec = outrecList[i]
             i <- i + 1
             if isNotNull outrec.pts then
@@ -2621,7 +2621,7 @@ type Clipper64<'Z>() =
                     if checkBounds outrec then
                         recursiveCheckOwners(outrec, polytree)
     let addPathsToVertexList (paths: Paths64<'Z>, pathType: PathType, isOpen: bool) : unit =
-        for i = 0 to paths.Count - 1 do
+        for i = 0 to paths |> Rarr.lastIdx do
             let path = paths[i]
 
             if path.HasZs then

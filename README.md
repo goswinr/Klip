@@ -25,7 +25,7 @@ So that this code - and a lot of other code using it - runs on .NET as well as i
 
 ## Scope
 
-This is a **partial** port - only what's needed for polygon boolean operations
+This is a **partial** port - it exposes polygon boolean operations
 on a single coordinate type:
 
 - Polygon boolean ops (intersection, union, difference, XOR) and PolyTree output
@@ -36,10 +36,10 @@ on a single coordinate type:
 - No scaling of input coordinates, like PathD does in `clipper2-ts` to support floating-point input.
 Instead, users can choose to scale their coordinates before passing them to Klip if they need more precision.
 
-- No offsetting / inflation, line clipping, rect clipping, Minkowski sums,
+- No polygon offsetting, line clipping, rect clipping, Minkowski sums,
   triangulation, or arbitrary-precision decimal paths
 
-The main convenience API is in [`Src/Klip.fs`](https://github.com/goswinr/Klip/blob/main/Src/Klip.fs), in the `Klip.Clipper` module. It wraps `Clipper64` for the common polygon boolean operations while keeping the lower-level engine available for specialized cases.
+The main convenience API is in [`Src/Klip.fs`](https://github.com/goswinr/Klip/blob/main/Src/Klip.fs), in the `Klip.Klipper` module. It wraps `Clipper64` for the common polygon boolean operations while keeping the lower-level engine available for specialized cases.
 
 ### Core Types
 
@@ -61,28 +61,61 @@ If you do not use `'Z` metadata, use the default no-Z helpers such as `Path64.cr
 
 
 
-### Boolean Operations
+## Boolean Operations
 
+### Open vs closed paths
 
-- `Clipper.intersect clip subject`: Returns the intersection of the subject and clip paths.
-- `Clipper.union clip subject`: Returns the union of subject and clip paths.
-- `Clipper.unionSelf subject`: Resolves self-intersections within a single subject path.
-- `Clipper.difference clip subject`: Returns the regions of the subject that are not inside the clip region.
-- `Clipper.xor clip subject`: Returns the regions of subject or clip that are not in both.
+Clipper2 does **not** infer open/closed from coordinates — a trailing vertex equal to the
+first one is just stripped, it does not change how the path is treated. Instead, each
+path is tagged as open or closed when it is added to the engine.
+
+Rules (inherited from Clipper2):
+- Subject paths can be considered open or closed.
+- Clip paths are always considered closed.
+- For `Intersection`, `Difference`, and `Xor`: closed subject paths are ignored when
+  computing the open-path solution, and vice versa — open and closed subjects are
+  effectively processed independently.
+- For `Union`: open subjects are clipped wherever they overlap any closed path
+  (whether that closed path is a subject or a clip).
+
+The `Klipper.*` wrappers below always treat input as **closed** polygons. To clip open
+paths (polylines / line segments), drop down to `Clipper64` directly and call
+`AddOpenSubject` (or `AddPaths(paths, PathType.Subject, isOpen = true)`):
+
+```fsharp
+let c = Clipper64<unit>()
+c.AddOpenSubject(openLines)   // polylines — endpoints stay endpoints
+c.AddSubject(closedPolygons)  // optional, closed
+c.AddClip(clipPolygons)       // clip is always closed
+let openSolution = Paths64<unit>()
+let closedSolution = Paths64<unit>()
+c.Execute(ClipType.Intersection, FillRule.EvenOdd, closedSolution, openSolution) |> ignore
+```
+
+### Closed-polygon wrappers
+
+- `Klipper.intersect clip subject`: Returns the intersection of the subject and clip paths.
+- `Klipper.union clip subject`: Returns the union of subject and clip paths.
+- `Klipper.unionSelf subject`: Resolves self-intersections within a single subject path.
+- `Klipper.difference clip subject`: Returns the regions of the subject that are not inside the clip region.
+- `Klipper.xor clip subject`: Returns the regions of subject or clip that are not in both.
 
 Each wrapper also has a `Z` variant that takes a `ZCallback64<'Z>` as the first argument:
 
-- `Clipper.intersectZ zCallback clip subject`
-- `Clipper.unionZ zCallback clip subject`
-- `Clipper.unionSelfZ zCallback subject`
-- `Clipper.differenceZ zCallback clip subject`
-- `Clipper.xorZ zCallback clip subject`
+- `Klipper.intersectZ zCallback clip subject`
+- `Klipper.unionZ zCallback clip subject`
+- `Klipper.unionSelfZ zCallback subject`
+- `Klipper.differenceZ zCallback clip subject`
+- `Klipper.xorZ zCallback clip subject`
 
 Use the general functions when you need a custom `ClipType`, `FillRule`, `ZCallback64`, or `PolyTree64` output:
 
-- `Clipper.booleanOp (clipType, subject, clip, fillRule, zCallback)`: Performs a boolean operation and returns `Paths64<'Z>`.
-- `Clipper.booleanOpWithPolyTree (clipType, subject, clip, polyTree, fillRule, zCallback)`: Writes the result into a `PolyTree64<'Z>` so hierarchy is preserved.
-- `Clipper.polyTreeToPaths64 polyTree`: Flattens a `PolyTree64<'Z>` back into `Paths64<'Z>`.
+- `Klipper.booleanOp (clipType, subject, clip, fillRule, zCallback)`: Performs a boolean operation and returns `Paths64<'Z>`.
+- `Klipper.booleanOpWithPolyTree (clipType, subject, clip, polyTree, fillRule, zCallback)`: Writes the result into a `PolyTree64<'Z>` so hierarchy is preserved.
+- `Klipper.polyTreeToPaths64 polyTree`: Flattens a `PolyTree64<'Z>` back into `Paths64<'Z>`.
+
+Like the wrappers, these also treat subjects as closed. For open-subject clipping use
+`Clipper64` directly as shown above.
 
 ```fsharp
 open Klip
@@ -93,11 +126,11 @@ let subject =
 let clip =
     Paths64.createSingle [ 5.0; 5.0; 15.0; 5.0; 15.0; 15.0; 5.0; 15.0 ]
 
-let union = Clipper.union clip subject
-let intersection = Clipper.intersect clip subject
+let union = Klipper.union clip subject
+let intersection = Klipper.intersect clip subject
 
 let nonZeroDifference =
-    Clipper.booleanOp (ClipType.Difference, subject, clip, FillRule.NonZero, None)
+    Klipper.booleanOp (ClipType.Difference, subject, clip, FillRule.NonZero, None)
 ```
 
 
@@ -108,12 +141,22 @@ for .NET
 dotnet build
 ```
 
+test:
+```bash
+dotnet test Test/FSharp/Tests/Tests1/Tests1.fsproj
+dotnet test Test/FSharp/Tests/Tests2/TestsZ.fsproj
+```
+
 for  JS
 ```bash
 cd Test
 npm install
 npm run build     # F# → JavaScript via Fable, then vite build
 npm run buildts   # F# → TypeScript via Fable, then tsc and vite build
+```
+
+and then to test:
+```bash
 npm test          # vitest --run
 ```
 

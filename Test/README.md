@@ -7,28 +7,35 @@ Vitest-based tests that exercise Klip's Fable output against the same fixtures u
 
 ## What's covered
 
-Klip currently exposes only a subset of Clipper2's surface - the boolean ops and
-PolyTree wrappers in `Klip/Src/Klip.fs` (`booleanOp`, `intersect`, `union`,
-`unionSelf`, `difference`, `xor`, `booleanOpWithPolyTree`, `polyTreeToPaths64`).
-The applicable upstream tests are mirrored here:
+Klip currently exposes a subset of Clipper2's surface: the boolean ops and
+PolyTree wrappers in `Klip/Src/Klip.fs`
+(`booleanOp`, `intersect`, `union`, `unionSelf`, `difference`, `xor`,
+`booleanOpWithPolyTree`, `polyTreeToPaths64`).
+
+The TypeScript Vitest harness mirrors the boolean / PolyTree
+fixtures, with an additional F# port under `FSharp/`:
 
 | File                       | Mirrors                              | Notes                                                                      |
 | -------------------------- | ------------------------------------ | -------------------------------------------------------------------------- |
 | `tests/polygons.test.ts`   | `clipper2-ts/tests/polygons.test.ts` | All 195 Polygons.txt cases + PolyTree consistency, basic ops, edge cases   |
 | `tests/polytree.test.ts`   | `clipper2-ts/tests/polytree.test.ts` | Hole ownership, complex nesting, area validation                           |
+| `tests/sliver-triangle.test.ts` | `clipper2-ts/tests/sliver-triangle.test.ts` | Regression for Clipper2 issue #1067 — NonZero union over sliver triangles |
 | `tests/test-data-parser.ts`| `clipper2-ts/tests/test-data-parser.ts` | Self-contained: defines local `ClipType`/`FillRule` enums and `Point64` shape |
-| `tests/test-data/`         | `clipper2-ts/tests/test-data/`       | `Polygons.txt`, `PolytreeHoleOwner.txt`, `PolytreeHoleOwner2.txt`          |
+| `tests/test-data/`         | `clipper2-ts/tests/test-data/`       | `Polygons.txt`, `PolytreeHoleOwner.txt`, `PolytreeHoleOwner2.txt` |
+| `FSharp/Tests/Tests1/Tests/SliverTriangleTests.fs` | `clipper2-ts/tests/sliver-triangle.test.ts` | F# port of the issue #1067 regression |
 
-Tests not ported (Klip doesn't expose the corresponding API): `lines.test.ts`
-(open subjects), `offsets`, `rectClip`, `triangulation`, `minkowski`,
-`precision`, `z-callback`, `sliver-triangle`, `comprehensive`.
+Tests not ported (Klip doesn't expose the corresponding API): `offsets.test.ts`
+(polygon offsetting), `lines.test.ts` (open subjects), `rectClip`,
+`triangulation`, `minkowski`, `precision`, `z-callback`, `comprehensive`.
 
 ## Format adapter
 
-Klip's `Path64` is a class with one flat interleaved `coords[]` buffer, while
+Klip's `Path64` is a class with one flat interleaved `XYs` buffer, while
 clipper2-ts (and the test fixtures) use `{x, y}[]`. `tests/adapter.ts`
-converts between the two and provides Klip-flavoured `area` / `areaPaths`
-helpers (delegating to Klip's `Geo_area`).
+converts between the two and provides local `area` / `areaPaths` helpers
+that re-implement the same shoelace logic as Klip's `Path64.SignedArea`
+member (Core.fs:234) — needed because Klip's compiled bundle tree-shakes the
+member off when no exported function references it.
 
 The test data parser keeps producing clipper2-ts-style `{x, y}[]` paths;
 conversion to Klip's `Path64` happens at the call site via the adapter.
@@ -71,8 +78,8 @@ excludes `_ts/fable_modules`.
 | `Tests2` (TestsZ) | Z-callback wiring on `Clipper64<'Z>` |
 
 Both test projects target the `Klip` library directly via `..\..\..\..\Klip.fsproj`.
-Offsetting and PolyTree-from-file tests from the original C# port are intentionally
-omitted — Klip does not expose those APIs.
+PolyTree-from-file tests from the original C# port are intentionally omitted —
+Klip does not ship the upstream test-data files for those scenarios.
 
 ## Running JS Benchmarks
 
@@ -88,8 +95,7 @@ npm run bench    # vitest bench --run
 
 The .NET benchmark harness compares Clipper2 `2.0.0` with the local `Klip.fsproj`
 for boolean clipping only: intersection, union, difference, and xor. Offsetting
-and triangulation are intentionally skipped because Klip exposes only a subset of
-Clipper2's API.
+and triangulation aren't exposed by Klip.
 
 ```bash
 dotnet run -c Release --project Test/FSharp/Benchmark/Benchmark.csproj -- --join

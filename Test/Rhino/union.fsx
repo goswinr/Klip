@@ -28,7 +28,7 @@ do
         let kr =
             xy
             |> Paths64.createFromxyMembers scale
-            |> Clipper.unionSelf
+            |> Klipper.unionSelf
             |> Paths64.scaleDown scale
 
         printfn $"Klip:    Scale: {scale}, Result Paths: {kr.Count}"
@@ -50,4 +50,4 @@ do
                 Clipper2Lib.FillRule.EvenOdd,
                 precision = i)
 
-        printfn $"Clipper: Scale: {scale}, Result Paths: {cr.Count}\n-"
+        printfn $"Klipper: Scale: {scale}, Result Paths: {cr.Count}\n-"

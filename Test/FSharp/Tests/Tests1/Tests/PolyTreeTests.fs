@@ -21,7 +21,7 @@ type PolyTreeTests () =
         let subj = paths [ outer; inner ]
 
         let tree = PolyTree64<unit>()
-        Clipper.booleanOpWithPolyTree(
+        Klipper.booleanOpWithPolyTree(
             ClipType.Union, subj, null, tree, FillRule.EvenOdd, None)
 
         Assert.AreEqual(1, tree.Count, "expected one outer contour at top level")
@@ -37,10 +37,10 @@ type PolyTreeTests () =
         let subj = paths [ outer; inner ]
 
         let tree = PolyTree64<unit>()
-        Clipper.booleanOpWithPolyTree(
+        Klipper.booleanOpWithPolyTree(
             ClipType.Union, subj, null, tree, FillRule.EvenOdd, None)
 
-        let flat = Clipper.polyTreeToPaths64 tree
+        let flat = Klipper.polyTreeToPaths64 tree
         Assert.AreEqual(2, flat.Count, "expected outer + hole as two flat paths")
 
         // outer area 100*100=10000, hole area 50*50=2500, tree area = 7500
@@ -55,7 +55,7 @@ type PolyTreeTests () =
         let subj = paths [ a; b ]
 
         let tree = PolyTree64<unit>()
-        Clipper.booleanOpWithPolyTree(
+        Klipper.booleanOpWithPolyTree(
             ClipType.Union, subj, null, tree, FillRule.NonZero, None)
 
         Assert.AreEqual(2, tree.Count)

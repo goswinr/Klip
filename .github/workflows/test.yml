@@ -21,35 +21,24 @@ jobs:
         with:
            dotnet-version: '10.x'
 
-      # - name: Restore dependencies
-      #   run: dotnet restore
+      - name: Run F# Tests1
+        run: dotnet test Test/FSharp/Tests/Tests1/Tests1.fsproj
 
-      # - name: Run tests .NET
-      #   run: dotnet run
-      #   working-directory: ./Test
-
-
-      - name: Restore .NET tools (Fable)
-        working-directory: ./Test
-        run: dotnet tool restore
+      - name: Run F# Tests2
+        run: dotnet test Test/FSharp/Tests/Tests2/TestsZ.fsproj
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '24.x' # Adjust the version as needed
+          node-version: '24.x'
 
       - name: Clean Install npm dependencies
+        working-directory: ./Test
         run: npm ci
-        working-directory: ./Test
 
-
-      - name: Build fable TS
+      - name: Build JS tests
         working-directory: ./Test
-        run: npm run buildTS
-
-      - name: Build fable JS
-        working-directory: ./Test
-        run: npm run buildJS
+        run: npm run build
 
       - name: Run tests JS
         working-directory: ./Test

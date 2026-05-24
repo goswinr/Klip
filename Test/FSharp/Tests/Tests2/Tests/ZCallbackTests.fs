@@ -86,9 +86,9 @@ type ZCallbackTests () =
                 invoked <- invoked + 1
                 42
 
-        let solution = Clipper.unionZ callback clip subject
+        let solution = Klipper.unionZ callback clip subject
         Assert.AreEqual(1, solution.Count)
-        Assert.IsTrue(invoked > 0, "Clipper.unionZ should route the callback through")
+        Assert.IsTrue(invoked > 0, "Klipper.unionZ should route the callback through")
 
     [<TestMethod>]
     member _.NoIntersectionsMeansNoCallbackInvocations () =
@@ -162,7 +162,7 @@ type ZCallbackTests () =
         let clip = Paths64.createEmpty()
         clip.Add(path [| 5.0;5.0; 15.0;5.0; 15.0;15.0; 5.0;15.0 |])
 
-        let solution = Clipper.union clip subj
+        let solution = Klipper.union clip subj
         Assert.AreEqual(1, solution.Count)
         Assert.IsFalse(solution.[0].HasZs,
             "output path should not have a Z buffer when no input paths do")

@@ -19,6 +19,7 @@
     <Compile Include="Tests/Helpers.fs" />
     <Compile Include="Tests/BooleanTests.fs" />
     <Compile Include="Tests/PolyTreeTests.fs" />
+    <Compile Include="Tests/SliverTriangleTests.fs" />
   </ItemGroup>
 
 </Project>

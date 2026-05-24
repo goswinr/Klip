@@ -17,7 +17,7 @@ type BooleanTests () =
     member _.UnionTwoOverlappingSquaresGivesOnePolygon () =
         let subj = paths [ square 0.0 0.0 10.0 ]
         let clip = paths [ square 5.0 5.0 10.0 ]
-        let solution = Clipper.union clip subj
+        let solution = Klipper.union clip subj
         Assert.AreEqual(1, solution.Count, "expected one merged polygon")
         // two 10x10 squares overlapping by 5x5 -> 100 + 100 - 25 = 175
         let area = totalAbsArea solution
@@ -28,7 +28,7 @@ type BooleanTests () =
     member _.IntersectTwoOverlappingSquaresGives5x5Square () =
         let subj = paths [ square 0.0 0.0 10.0 ]
         let clip = paths [ square 5.0 5.0 10.0 ]
-        let solution = Clipper.intersect clip subj
+        let solution = Klipper.intersect clip subj
         Assert.AreEqual(1, solution.Count)
         let area = totalAbsArea solution
         Assert.IsTrue(abs (area - 25.0) < 0.5,
@@ -38,7 +38,7 @@ type BooleanTests () =
     member _.DifferenceTwoOverlappingSquaresArea () =
         let subj = paths [ square 0.0 0.0 10.0 ]
         let clip = paths [ square 5.0 5.0 10.0 ]
-        let solution = Clipper.difference clip subj
+        let solution = Klipper.difference clip subj
         Assert.AreEqual(1, solution.Count)
         // 100 - 25 = 75
         let area = totalAbsArea solution
@@ -49,7 +49,7 @@ type BooleanTests () =
     member _.XorTwoOverlappingSquaresArea () =
         let subj = paths [ square 0.0 0.0 10.0 ]
         let clip = paths [ square 5.0 5.0 10.0 ]
-        let solution = Clipper.xor clip subj
+        let solution = Klipper.xor clip subj
         // expected: two L-shapes (or one polygon with hole) — total area = 75 + 75 = 150
         let area = totalAbsArea solution
         Assert.IsTrue(abs (area - 150.0) < 0.5,
@@ -59,7 +59,7 @@ type BooleanTests () =
     member _.UnionDisjointSquaresStaysSeparate () =
         let subj = paths [ square 0.0 0.0 10.0 ]
         let clip = paths [ square 100.0 100.0 10.0 ]
-        let solution = Clipper.union clip subj
+        let solution = Klipper.union clip subj
         Assert.AreEqual(2, solution.Count, "disjoint squares should remain separate")
         let area = totalAbsArea solution
         Assert.IsTrue(abs (area - 200.0) < 0.5)
@@ -68,7 +68,7 @@ type BooleanTests () =
     member _.UnionSelfResolvesSelfIntersectingPath () =
         // bow-tie: two triangles sharing a self-intersection point in the middle
         let subj = paths [ path [| 0.0;0.0; 10.0;10.0; 10.0;0.0; 0.0;10.0 |] ]
-        let solution = Clipper.unionSelf subj
+        let solution = Klipper.unionSelf subj
         Assert.IsTrue(solution.Count >= 1, "expected at least one polygon")
         let area = totalAbsArea solution
         // each triangle is 25, total 50
@@ -79,7 +79,7 @@ type BooleanTests () =
     member _.EmptySubjectUnionReturnsClip () =
         let subj = Paths64<unit>()
         let clip = paths [ square 0.0 0.0 10.0 ]
-        let solution = Clipper.union clip subj
+        let solution = Klipper.union clip subj
         // empty subject + non-empty clip union = clip
         Assert.AreEqual(1, solution.Count)
         Assert.IsTrue(abs (totalAbsArea solution - 100.0) < 0.5)
@@ -88,13 +88,13 @@ type BooleanTests () =
     member _.EmptySubjectIntersectIsEmpty () =
         let subj = Paths64<unit>()
         let clip = paths [ square 0.0 0.0 10.0 ]
-        let solution = Clipper.intersect clip subj
+        let solution = Klipper.intersect clip subj
         Assert.AreEqual(0, solution.Count)
 
     [<TestMethod>]
     member _.NullSubjectGivesEmptySolution () =
         let clip = paths [ square 0.0 0.0 10.0 ]
-        let solution = Clipper.union clip null
+        let solution = Klipper.union clip null
         Assert.AreEqual(0, solution.Count)
 
     [<TestMethod>]

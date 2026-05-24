@@ -12,3 +12,5 @@ _distTS/
 *.3dm.rhl
 
 BenchmarkDotNet.Artifacts/
+
+*.lscache

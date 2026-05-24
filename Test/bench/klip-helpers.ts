@@ -43,17 +43,17 @@ interface KlipApi {
 }
 
 interface KlipBundle {
-  Clipper_booleanOp: KlipApi['booleanOp'];
-  Clipper_booleanOpWithPolyTree: KlipApi['booleanOpWithPolyTree'];
-  Clipper_polyTreeToPaths64: KlipApi['polyTreeToPaths64'];
+  Klipper_booleanOp: KlipApi['booleanOp'];
+  Klipper_booleanOpWithPolyTree: KlipApi['booleanOpWithPolyTree'];
+  Klipper_polyTreeToPaths64: KlipApi['polyTreeToPaths64'];
 }
 
 const bundle = KlipModule as unknown as KlipBundle;
 
 export const Klip: KlipApi = {
-  booleanOp: bundle.Clipper_booleanOp,
-  booleanOpWithPolyTree: bundle.Clipper_booleanOpWithPolyTree,
-  polyTreeToPaths64: bundle.Clipper_polyTreeToPaths64,
+  booleanOp: bundle.Klipper_booleanOp,
+  booleanOpWithPolyTree: bundle.Klipper_booleanOpWithPolyTree,
+  polyTreeToPaths64: bundle.Klipper_polyTreeToPaths64,
 };
 
 export function toKlipPath(path: readonly Point64[]): KlipPath64 {

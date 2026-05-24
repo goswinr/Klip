@@ -307,7 +307,7 @@ module KlipInternal =
 
         /// Clears all child nodes.
         member _.ClearContent() : unit =
-            children|> Rarr.clear
+            children |> Rarr.clear
 
         /// Gets the polygon contour. For the polytree root this is null.
         member _.Poly : Path64<'Z> =
@@ -332,8 +332,8 @@ module KlipInternal =
                 if isNull' polygon then
                     0.0
                 else
-                    Geo.area polygon
-            for i = 0 to children.Count - 1 do
+                    polygon.SignedArea
+            for i = 0 to children |> Rarr.lastIdx do
                 result <- result + children[i].Area()
             result
 
@@ -345,7 +345,7 @@ module KlipInternal =
                 sb.AppendLine $"{padding}+- hole ({idx}) contains {children.Count} nested polygon{plural}." |> ignore
             else
                 sb.AppendLine $"{padding}+- polygon ({idx}) contains {children.Count} hole{plural}." |> ignore
-            for i = 0 to children.Count - 1 do
+            for i = 0 to children |> Rarr.lastIdx do
                 if children[i].Count > 0 then
                     sb.Append(children[i].ToStringInternal(i, level + 1)) |> ignore
             sb.ToString()
@@ -357,7 +357,7 @@ module KlipInternal =
                 let plural = if children.Count = 1 then "" else "s"
                 let sb = Text.StringBuilder()
                 sb.AppendLine $"Polytree with {children.Count} polygon{plural}." |> ignore
-                for i = 0 to children.Count - 1 do
+                for i = 0 to children |> Rarr.lastIdx do
                     if children[i].Count > 0 then
                         sb.Append(children[i].ToStringInternal(i, 1)) |> ignore
                 sb.Append('\n') |> ignore
@@ -416,7 +416,7 @@ module KlipInternal =
         let siftDown (idx: int) =
             let data = data // avoid closure capture of 'this' in loop?
             let mutable index = idx
-            let length = data.Count
+            let length = Rarr.len data
             let value = data[index]
             let mutable loopOn = true
             while loopOn do
@@ -439,17 +439,17 @@ module KlipInternal =
 
         member _.Push(value: float) : unit =
             data.Add(value)
-            siftUp (data.Count - 1)
+            siftUp (Rarr.lastIdx data)
 
         /// return NaN if empty
         member _.Pop() : float =
-            if data.Count = 0 then
+            if Rarr.len data = 0 then
                 Double.NaN
             else
                 let maxV = data[0]
-                let last = data[data.Count - 1]
+                let last = data[Rarr.lastIdx data]
                 data |> Rarr.pop
-                if data.Count > 0 then
+                if Rarr.len data > 0 then
                     data[0] <- last
                     siftDown 0
                 maxV

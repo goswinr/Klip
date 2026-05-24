@@ -91,7 +91,7 @@ function benchBooleanOperation(
   clipType: ClipType,
   subject: Paths64,
   clip: Paths64 | null = null,
-  iterations = 1,
+  iterations = 10,
 ): void {
   const klipSubject = toKlipPaths(subject);
   const klipClip = clip === null ? null : toKlipPaths(clip);
@@ -228,7 +228,7 @@ describe('Convenience Functions', () => {
     const wasmSubject = toWasmPaths(subject);
 
     benchConvenienceOperation(
-      'Clipper.union - medium grid',
+      'Klipper.union - medium grid',
       () => { Clipper.union(subject, fillRule); },
       () => { wasmUnion(wasmSubject, fillRule); },
       () => { klipUnion(klipSubject, fillRule); },
@@ -244,14 +244,14 @@ describe('Convenience Functions', () => {
     const wasmClip = toWasmPaths(clip);
 
     benchConvenienceOperation(
-      'Clipper.intersect - medium overlapping',
+      'Klipper.intersect - medium overlapping',
       () => { Clipper.intersect(subject, clip, fillRule); },
       () => { wasmIntersect(wasmSubject, wasmClip, fillRule); },
       () => { klipIntersect(klipSubject, klipClip, fillRule); },
     );
 
     benchConvenienceOperation(
-      'Clipper.difference - medium overlapping',
+      'Klipper.difference - medium overlapping',
       () => { Clipper.difference(subject, clip, fillRule); },
       () => { wasmDifference(wasmSubject, wasmClip, fillRule); },
       () => { klipDifference(klipSubject, klipClip, fillRule); },

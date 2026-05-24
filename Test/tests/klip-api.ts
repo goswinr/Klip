@@ -8,6 +8,7 @@
  *   - `booleanOp` / `intersect` / `union` / `unionSelf` / `difference` / `xor`
  *   - `booleanOpWithPolyTree`
  *   - `polyTreeToPaths64`
+ *   - `inflate` / `inflatePaths` / `offsetOpenPaths`
  *
  * Z-callback variants exist in the bundle but are not used by these tests.
  */
@@ -19,15 +20,37 @@ import type { ClipType, FillRule } from './test-data-parser';
 // @ts-ignore -- bundle has no accompanying .d.ts
 import * as KlipModule from '../_dist/Klip.mjs';
 
+// Mirrors Klip's `Offset.JoinType` (Src/Offset.fs).
+// NOTE: numeric values differ from clipper2-ts — keep tests parameterized via
+// these constants, not raw integers.
+export enum JoinType {
+  Miter = 0,
+  Square = 1,
+  Bevel = 2,
+  Round = 3,
+}
+
+// Mirrors Klip's `Offset.EndType` (Src/Offset.fs).
+export enum EndType {
+  Polygon = 0,
+  Joined = 1,
+  Butt = 2,
+  Square = 3,
+  Round = 4,
+}
+
 interface KlipBundle {
-  Clipper_booleanOp: KlipApi['booleanOp'];
-  Clipper_booleanOpWithPolyTree: KlipApi['booleanOpWithPolyTree'];
-  Clipper_polyTreeToPaths64: KlipApi['polyTreeToPaths64'];
-  Clipper_intersect: KlipApi['intersect'];
-  Clipper_union: KlipApi['union'];
-  Clipper_unionSelf: KlipApi['unionSelf'];
-  Clipper_difference: KlipApi['difference'];
-  Clipper_xor: KlipApi['xor'];
+  Klipper_booleanOp: KlipApi['booleanOp'];
+  Klipper_booleanOpWithPolyTree: KlipApi['booleanOpWithPolyTree'];
+  Klipper_polyTreeToPaths64: KlipApi['polyTreeToPaths64'];
+  Klipper_intersect: KlipApi['intersect'];
+  Klipper_union: KlipApi['union'];
+  Klipper_unionSelf: KlipApi['unionSelf'];
+  Klipper_difference: KlipApi['difference'];
+  Klipper_xor: KlipApi['xor'];
+  Klipper_inflate: KlipApi['inflate'];
+  Klipper_inflatePaths: KlipApi['inflatePaths'];
+  Klipper_offsetOpenPaths: KlipApi['offsetOpenPaths'];
 }
 
 interface KlipApi {
@@ -55,19 +78,47 @@ interface KlipApi {
   unionSelf(subject: KlipPaths64): KlipPaths64;
   difference(clip: KlipPaths64, subject: KlipPaths64): KlipPaths64;
   xor(clip: KlipPaths64, subject: KlipPaths64): KlipPaths64;
+
+  /** Round joins, miter limit 2.0, default arc tolerance. EndType is Polygon. */
+  inflate(delta: number, paths: KlipPaths64): KlipPaths64;
+
+  /**
+   * Inflate (positive `delta`) or deflate (negative `delta`) closed polygons.
+   * EndType is implicitly Polygon. `arcTolerance` of 0 means automatic.
+   */
+  inflatePaths(
+    paths: KlipPaths64,
+    delta: number,
+    joinType: JoinType,
+    miterLimit: number,
+    arcTolerance: number,
+  ): KlipPaths64;
+
+  /** Offsets open paths with the specified join and end type. */
+  offsetOpenPaths(
+    paths: KlipPaths64,
+    delta: number,
+    joinType: JoinType,
+    endType: EndType,
+    miterLimit: number,
+    arcTolerance: number,
+  ): KlipPaths64;
 }
 
 const bundle = KlipModule as unknown as KlipBundle;
 
 export const Klip: KlipApi = {
-  booleanOp: bundle.Clipper_booleanOp,
-  booleanOpWithPolyTree: bundle.Clipper_booleanOpWithPolyTree,
-  polyTreeToPaths64: bundle.Clipper_polyTreeToPaths64,
-  intersect: bundle.Clipper_intersect,
-  union: bundle.Clipper_union,
-  unionSelf: bundle.Clipper_unionSelf,
-  difference: bundle.Clipper_difference,
-  xor: bundle.Clipper_xor,
+  booleanOp: bundle.Klipper_booleanOp,
+  booleanOpWithPolyTree: bundle.Klipper_booleanOpWithPolyTree,
+  polyTreeToPaths64: bundle.Klipper_polyTreeToPaths64,
+  intersect: bundle.Klipper_intersect,
+  union: bundle.Klipper_union,
+  unionSelf: bundle.Klipper_unionSelf,
+  difference: bundle.Klipper_difference,
+  xor: bundle.Klipper_xor,
+  inflate: bundle.Klipper_inflate,
+  inflatePaths: bundle.Klipper_inflatePaths,
+  offsetOpenPaths: bundle.Klipper_offsetOpenPaths,
 };
 
 export type { KlipPath64, KlipPaths64, KlipPolyTree64 };

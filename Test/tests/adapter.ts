@@ -9,10 +9,10 @@
  * is not null. So a plain object literal `{ xys }` is interchangeable with a real
  * Path64 for the purposes of these tests.
  *
- * Klip's compiled bundle (`_dist/Klip.mjs`) does not export `Geo_area` /
- * `pointInPolygon` / PolyTree accessors — they get tree-shaken because the
+ * Klip's compiled bundle (`_dist/Klip.mjs`) does not surface `Path64.SignedArea`
+ * / `pointInPolygon` / PolyTree accessors — they get tree-shaken because the
  * exposed boolean ops don't reference them. So we re-implement those helpers
- * here using the same shoelace / ray-casting logic as Klip's `Geo` module.
+ * here using the same shoelace / ray-casting logic.
  */
 
 import type { Point64 } from './test-data-parser';
@@ -66,8 +66,8 @@ export function fromKlipPaths(ps: KlipPaths64): Point64[][] {
 }
 
 /**
- * Signed area of a single closed path. Mirrors Klip's `Geo.area`
- * (Core.fs:230) — same shoelace formulation.
+ * Signed area of a single closed path. Mirrors Klip's `Path64.SignedArea`
+ * member (Core.fs:234) — same shoelace formulation.
  */
 export function area(path: KlipPath64): number {
   const cnt = path.xys.length >>> 1;
