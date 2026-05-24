@@ -12,7 +12,7 @@ type ZCallbackTests () =
     let pathZ (xys: float[]) (zVal: int) : Path64<int> =
         let ptCount = xys.Length / 2
         let zs = ResizeArray<int>(Array.create ptCount zVal)
-        Path64.createFromZ 1.0 zs (ResizeArray xys)
+        Path64.createFromZ zs (ResizeArray xys)
 
     let mkPaths (ps: Path64<int> list) : Paths64<int> =
         let r = Paths64<int>()
@@ -156,7 +156,7 @@ type ZCallbackTests () =
         // sanity: when no input path provides Zs, the engine should not allocate
         // a Z buffer on the output (matches `Path64.create()` path).
         let path (xys: float[]) : Path64<unit> =
-            Path64.createFrom 1.0 (ResizeArray xys)
+            Path64.createFrom  (ResizeArray xys)
         let subj = Paths64.createEmpty()
         subj.Add(path [| 0.0;0.0; 10.0;0.0; 10.0;10.0; 0.0;10.0 |])
         let clip = Paths64.createEmpty()

@@ -35,7 +35,7 @@ Klip's engine runs on **unrounded `float` coordinates** (`Geo.jsRound` is the id
 counts/areas come from an integer-snapped clipper, so a handful of complex cases now resolve into a
 slightly different number of (touching) contours. This is absorbed by raised per-case tolerances in
 `tests/polygons.test.ts` — grep for `unrounded` — in the same spirit as the area tolerances that the
-file already retunes per rounding/truncation mode. Test `181` needed a notably large count
+file already retunes for engine behavior. Test `181` needed a notably large count
 allowance and is flagged in a comment as worth revisiting.
 
 The F# tests round each solution's coordinates (`Helpers.roundPaths`, real `Math.Round`) before
@@ -58,7 +58,7 @@ Tests — F# tests round solution coords via a new Helpers.roundPaths before ass
 ### The important detour
 Your literal spec (abs(a-b) < 1.0) and the F# unit tests alone were misleading — those 22 tests passed, but the repo's 203-case TypeScript suite regressed 203→175. Investigating showed:
 
-1.0 is too coarse at this library's coordinate scale (~10–1000) — it fused distinct points and doubled the damage. A tiny tolerance (1e-6, which you chose) behaves ≈exact here while still absorbing float noise.
+1.0 is too coarse for this library's typical coordinate magnitudes (~10–1000) — it fused distinct points and doubled the damage. A tiny tolerance (1e-6) behaves ≈exact here while still absorbing float noise.
 Collinearity is cross-product based, not coordinate-equality based, so it also needed a tolerance (crossIsZero) to keep collinear edges merging.
 A residual handful of complex cases inherently fragment a bit differently without integer snapping (test 181 by ~37); that can't be undone at output time, so it's absorbed by retuned suite tolerances.
 ### Verification
@@ -107,6 +107,7 @@ npm install     # install vitest and dependencies
 Then run the tests with:
 
 ```bash
+cd Test
 npm run build   # dotnet fable + vite build
 npm test        # vitest --run
 ```
@@ -189,5 +190,6 @@ integer-stepped `Point64` values:
 Run it with:
 
 ```bash
+cd Test
 dotnet fsi FSharp/Tests/CrossProductSignCompare.fsx
 ```

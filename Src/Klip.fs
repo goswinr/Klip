@@ -43,7 +43,52 @@ open Klip.KlipInternal
 /// (regardless of whether they are subject or clip paths).
 module Klipper =
 
+
+    // #endregion
+    // #region Klipper utilities
+
+    /// Returns a new Path64 with the order of the vertices and Z values if present reversed.
+    let reversePath (p: Path64<'Z>) : Path64<'Z> =
+        Geo.reversePath p
+
+    /// Checks if the path has a positive orientation.
+    /// That means, if the signed area of the path is positive.
+    /// That means a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    /// Also returns `true` for degenerate paths with zero area.
+    let hasPositiveOrientation (p: Path64<'Z>) : bool =
+        p.SignedArea >= 0.0
+
+
+    /// Checks if the path has a positive orientation.
+    /// That means, if the signed area of the path is positive.
+    /// That means a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    /// Returns `false` for degenerate paths with zero area, as they are not considered to have a valid orientation.
+    let isCounterClockwise (p: Path64<'Z>) =
+        p.SignedArea > 0.0
+
+
+    /// Ensures that the path has a positive orientation by checking its signed area and reversing it if necessary.
+    /// A positive orientation is a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    let ensurePositiveOrientation (p: Path64<'Z>) : Path64<'Z> =
+        if hasPositiveOrientation p then
+            p
+        else
+            reversePath p
+
+
+    /// Ensures that the path has a negative orientation by checking its signed area and reversing it if necessary.
+    /// A negative orientation is a clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    let ensureNegativeOrientation (p: Path64<'Z>) : Path64<'Z> =
+        if hasPositiveOrientation p then
+            p
+        else
+            reversePath p
+
+    // #endregion
+    // #region Bool Ops
+
     /// Performs a boolean operation between `subject` and `clip` based on the specified `ClipType` and `FillRule`.
+    /// The result outer path contours will have a positive orientation (unless the Clipper object's ReverseSolution property has been enabled).
     let booleanOp (clipType:ClipType, subject:Paths64<'Z>, clip:Paths64<'Z>, fillRule:FillRule, zCallback:ZCallback64<'Z> option) : Paths64<'Z> =
         let solution = Paths64<'Z>()
         if isNull' subject then
@@ -66,6 +111,7 @@ module Klipper =
         booleanOp (ClipType.Intersection, subject, clip, FillRule.NonZero, Some zCallback)
 
     /// Performs the union operation between `subject` and `clip` using the NonZero fill rule.
+    ///
     let union (clip:Paths64<'Z>) (subject:Paths64<'Z>)  : Paths64<'Z> =
         booleanOp (ClipType.Union, subject, clip, FillRule.NonZero, None)
 
@@ -74,13 +120,34 @@ module Klipper =
         booleanOp (ClipType.Union, subject, clip, FillRule.NonZero, Some zCallback)
 
 
-    /// Performs the union operation on a single subject path, resolving self-intersections.
+    /// Performs the union operation on a single subject path.
+    /// Ensures that all paths have a positive orientation before performing the union.
+    /// Negative paths will be considered holes.
+    /// A positive orientation is a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
     let unionSelf (subject:Paths64<'Z>) : Paths64<'Z> =
         booleanOp (ClipType.Union, subject, null, FillRule.NonZero, None)
 
-    /// Performs the union operation on a single subject path, resolving self-intersections, with a custom Z callback.
+    /// Performs the union operation on a single subject path, with a custom Z callback.
+    /// Ensures that all paths have a positive orientation before performing the union.
+    /// Negative paths will be considered holes.
+    /// A positive orientation is a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
     let unionSelfZ (zCallback:ZCallback64<'Z>) (subject:Paths64<'Z>) : Paths64<'Z> =
         booleanOp (ClipType.Union, subject, null, FillRule.NonZero, Some zCallback)
+
+
+    /// Performs the union operation on simple paths without a holes.
+    /// Ensures that all paths have a positive orientation before performing the union.
+    /// A positive orientation is a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    let unionSelfChecked (subject:Paths64<'Z>) : Paths64<'Z> =
+        let ccwPaths = subject |> Rarr.map ensurePositiveOrientation
+        booleanOp (ClipType.Union, ccwPaths, null, FillRule.NonZero, None)
+
+    /// Performs the union operation on simple paths without a holes, with a custom Z callback.
+    /// Ensures that all paths have a positive orientation before performing the union.
+    /// A positive orientation is a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    let unionSelfCheckedZ (zCallback:ZCallback64<'Z>) (subject:Paths64<'Z>) : Paths64<'Z> =
+        let ccwPaths = subject |> Rarr.map ensurePositiveOrientation
+        booleanOp (ClipType.Union, ccwPaths, null, FillRule.NonZero, Some zCallback)
 
     /// Performs the difference operation (subject regions that are not in the clip region) using the NonZero fill rule.
     let difference (clip:Paths64<'Z>) (subject:Paths64<'Z>) : Paths64<'Z> =
@@ -99,6 +166,19 @@ module Klipper =
     let xorZ (zCallback:ZCallback64<'Z>) (clip:Paths64<'Z>) (subject:Paths64<'Z>) : Paths64<'Z> =
         booleanOp (ClipType.Xor, subject, clip, FillRule.NonZero, Some zCallback)
 
+    /// Removes self-intersections from a positively oriented path by performing a union operation on it with itself.
+    /// A positive orientation is a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    let removeSelfIntersectionsPositive (subject:Path64<Unit>) : Paths64<unit> =
+        let r = ResizeArray<Path64<unit>>()
+        r.Add subject
+        booleanOp (ClipType.Union, r, null, FillRule.Positive, None)
+
+    /// Removes self-intersections from a negatively oriented path by performing a union operation on it with itself.
+    /// A negative orientation is a clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
+    let removeSelfIntersectionsNegative (subject:Path64<Unit>) : Paths64<unit> =
+        let r = ResizeArray<Path64<unit>>()
+        r.Add subject
+        booleanOp (ClipType.Union, r, null, FillRule.Negative, None)
 
 
     /// Performs a boolean operation between `subject` and `clip` based on the specified `ClipType` and `FillRule`,
@@ -127,35 +207,6 @@ module Klipper =
 
 
 
-    // #endregion
-    // #region Klipper utilities
-
-    /// Returns a new Path64 with the order of the vertices and Z values if present reversed.
-    let reversePath (p: Path64<'Z>) : Path64<'Z> =
-        Geo.reversePath p
-
-    /// Checks if the path has a positive orientation.
-    /// That means, if the signed area of the path is positive.
-    /// That means a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
-    /// Also returns `true` for degenerate paths with zero area.
-    let hasPositiveOrientation (p: Path64<'Z>) : bool =
-        p.SignedArea >= 0.0
-
-
-    /// Checks if the path has a positive orientation.
-    /// That means, if the signed area of the path is positive.
-    /// That means a counter-clockwise loop when the global Y-axis is positive upwards.(Right handed coordinate system)
-    /// Returns `false` for degenerate paths with zero area, as they are not considered to have a valid orientation.
-    let isCounterClockwise (p: Path64<'Z>) =
-        p.SignedArea > 0.0
-
-
-    /// Ensures that the path has a positive orientation by checking its signed area and reversing it if necessary.
-    let ensurePositiveOrientation (p: Path64<'Z>) : Path64<'Z> =
-        if hasPositiveOrientation p then
-            p
-        else
-            reversePath p
 
 
 
@@ -164,50 +215,50 @@ module Klipper =
 //#endregion
 //#region Floats
 
-/// Utility functions for rounding and scaling coordinates.
-/// ( ResizeArrays of floats representing interleaved X and Y coordinates).
-module Floats =
+// /// Utility functions for rounding and scaling coordinates.
+// /// ( ResizeArrays of floats representing interleaved X and Y coordinates).
+// module Floats =
 
 
-    /// Multiplies all points in the provided ResizeArray by the given factor, and rounds to integers.
-    /// Returns a new ResizeArray containing the scaled and rounded coordinates, without modifying the original ResizeArray.
-    let inline scaleUpAndRound (scaleFactor:float) (xys:ResizeArray<float>) : ResizeArray<float> =
-        xys |> Rarr.map (fun v -> Geo.jsRound(v * scaleFactor))
+//     /// Multiplies all points in the provided ResizeArray by the given factor, and rounds to integers.
+//     /// Returns a new ResizeArray containing the scaled and rounded coordinates, without modifying the original ResizeArray.
+//     let inline scaleUpAndRound (scaleFactor:float) (xys:ResizeArray<float>) : ResizeArray<float> =
+//         xys |> Rarr.map (fun v -> Geo.jsRound(v * scaleFactor))
 
 
-    /// Multiplies all points in the provided ResizeArray by the given factor, and rounds to integers.
-    /// Returns the same ResizeArray that was passed in, after modifying it in place.
-    let inline scaleUpAndRoundInPlace (scaleFactor:float) (xys:ResizeArray<float>) : ResizeArray<float> =
-        for i = 0 to xys |> Rarr.lastIdx do
-            xys[i] <- Geo.jsRound(xys[i] * scaleFactor)
-        xys
+//     /// Multiplies all points in the provided ResizeArray by the given factor, and rounds to integers.
+//     /// Returns the same ResizeArray that was passed in, after modifying it in place.
+//     let inline scaleUpAndRoundInPlace (scaleFactor:float) (xys:ResizeArray<float>) : ResizeArray<float> =
+//         for i = 0 to xys |> Rarr.lastIdx do
+//             xys[i] <- Geo.jsRound(xys[i] * scaleFactor)
+//         xys
 
-    /// Rounds all points in the provided ResizeArray to integers.
-    /// Returns a new ResizeArray containing the rounded coordinates, without modifying the original ResizeArray.
-    let inline round (xys:ResizeArray<float>) : ResizeArray<float> =
-        xys |> Rarr.map Geo.jsRound
+//     /// Rounds all points in the provided ResizeArray to integers.
+//     /// Returns a new ResizeArray containing the rounded coordinates, without modifying the original ResizeArray.
+//     let inline round (xys:ResizeArray<float>) : ResizeArray<float> =
+//         xys |> Rarr.map Geo.jsRound
 
-    /// Rounds all points in the provided ResizeArray to integers.
-    /// Returns the same ResizeArray that was passed in, after modifying it in place.
-    let inline roundInPlace (xys:ResizeArray<float>) : ResizeArray<float> =
-        for i = 0 to xys |> Rarr.lastIdx do
-            xys[i] <- Geo.jsRound(xys[i])
-        xys
+//     /// Rounds all points in the provided ResizeArray to integers.
+//     /// Returns the same ResizeArray that was passed in, after modifying it in place.
+//     let inline roundInPlace (xys:ResizeArray<float>) : ResizeArray<float> =
+//         for i = 0 to xys |> Rarr.lastIdx do
+//             xys[i] <- Geo.jsRound(xys[i])
+//         xys
 
 
-    /// Divides all points in the provided ResizeArray by the given factor, without rounding.
-    /// Returns a new ResizeArray containing the scaled coordinates, without modifying the original ResizeArray.
-    let inline scaleDownWithoutRounding (scaleFactor:float) (xys:ResizeArray<float>) : ResizeArray<float> =
-       let f = 1.0 / scaleFactor
-       xys |> Rarr.map (fun v -> v * f)
+//     /// Divides all points in the provided ResizeArray by the given factor, without rounding.
+//     /// Returns a new ResizeArray containing the scaled coordinates, without modifying the original ResizeArray.
+//     let inline scaleDownWithoutRounding (scaleFactor:float) (xys:ResizeArray<float>) : ResizeArray<float> =
+//        let f = 1.0 / scaleFactor
+//        xys |> Rarr.map (fun v -> v * f)
 
-    /// Divides all points in the provided ResizeArray by the given factor, without rounding.
-    /// Returns the same ResizeArray that was passed in, after modifying it in place.
-    let inline scaleDownWithoutRoundingInPlace (scaleFactor:float) (xys:ResizeArray<float>) : ResizeArray<float> =
-        let f = 1.0 / scaleFactor
-        for i = 0 to xys |> Rarr.lastIdx do
-            xys[i] <- xys[i] * f
-        xys
+//     /// Divides all points in the provided ResizeArray by the given factor, without rounding.
+//     /// Returns the same ResizeArray that was passed in, after modifying it in place.
+//     let inline scaleDownWithoutRoundingInPlace (scaleFactor:float) (xys:ResizeArray<float>) : ResizeArray<float> =
+//         let f = 1.0 / scaleFactor
+//         for i = 0 to xys |> Rarr.lastIdx do
+//             xys[i] <- xys[i] * f
+//         xys
 
 //#endregion
 //#region Path64 module
@@ -268,8 +319,7 @@ module Path64 =
     let inline createDirectly (xys:ResizeArray<float>) : Path64<unit> =
         Path64<unit>(xys, None)
 
-    /// The floats in the provided ResizeArray must be rounded to integers already.
-    /// To do rounding at creation, use Path64.createFrom(xys) instead.
+
     /// Creates a Path64 using the ResizeArray of interleaved X and Y coordinates, and a ResizeArray of Z values.
     /// The provided ResizeArrays are used directly without copying, so they should not be modified after being passed in.
     let inline createDirectlyZ (zs:ResizeArray<'Z>) (xys:ResizeArray<float>) : Path64<'Z> =
@@ -277,50 +327,95 @@ module Path64 =
 
 
     /// Creates a new Path64 using the ResizeArray of interleaved X and Y coordinates.
-    /// The provided ResizeArray is first scaled up and rounded to integers, then copied into a new ResizeArray.
-    let inline createFrom (scaleFactor:float) (xys:ResizeArray<float>) : Path64<unit> =
-        Path64<unit>(Floats.scaleUpAndRound scaleFactor xys, None)
+    /// The provided ResizeArray is copied into a new ResizeArray.
+    let inline createFrom (xys:ResizeArray<float>) : Path64<unit> =
+        Path64<unit>(xys.GetRange(0, xys.Count), None)
 
     /// Creates a new Path64 using the ResizeArray of interleaved X and Y coordinates.
-    /// The provided ResizeArray is first scaled up and rounded to integers, then copied into a new ResizeArray.
+    /// The provided ResizeArray is copied into a new ResizeArray.
     /// The provided ResizeArray of Z values is used directly without copying, so it should not be modified after being passed in.
-    let inline createFromZ (scaleFactor:float) (zs:ResizeArray<'Z>) (xys:ResizeArray<float>) : Path64<'Z> =
-        Path64<'Z>(Floats.scaleUpAndRound scaleFactor xys, Some zs)
-
-
-    /// Creates a new Path64 using the seq of interleaved X and Y coordinates.
-    /// The provided seq is first scaled up and rounded to integers, then copied into a new ResizeArray.
-    let inline createFromSeq (scaleFactor:float) (xys:seq<float>) : Path64<unit> =
-        Path64<unit>(ResizeArray xys |> Floats.scaleUpAndRound scaleFactor , None)
+    let inline createFromZ (zs:ResizeArray<'Z>) (xys:ResizeArray<float>) : Path64<'Z> =
+        Path64<'Z>(xys.GetRange(0, xys.Count), Some zs)
 
     /// Creates a new Path64 using the seq of interleaved X and Y coordinates.
-    /// The provided seq is first scaled up and rounded to integers, then copied into a new ResizeArray.
+    /// The provided seq copied into a new ResizeArray.
+    let inline createFromSeq (xys:seq<float>) : Path64<unit> =
+        Path64<unit>(ResizeArray xys  , None)
+
+    /// Creates a new Path64 using the seq of interleaved X and Y coordinates.
+    /// The provided seq copied into a new ResizeArray.
     /// The provided seq of Z values is shallow copied.
-    let inline createFromSeqZ (scaleFactor:float) (zs:seq<'Z>) (xys:seq<float>) : Path64<'Z> =
-        Path64<'Z>( ResizeArray xys |> Floats.scaleUpAndRound scaleFactor, Some (ResizeArray(zs)))
+    let inline createFromSeqZ (zs:seq<'Z>) (xys:seq<float>) : Path64<'Z> =
+        Path64<'Z>( ResizeArray xys , Some (ResizeArray(zs)))
 
 
     /// Creates a Path64 from a seq (IEnumerable) of objects with X and Y members (UPPERCASE).
-    /// The provided points are scaled up and rounded to integers
-    let inline createFromXYMembers (scaleFactor:float) (xyObjs: seq<^T> ) : Path64<unit> = // when ^T: (member X:_) and ^T: (member Y:_)
+    /// The provided points are copied into a new ResizeArray.
+    let inline createFromXYMembers (xyObjs: seq<^T> ) : Path64<unit> = // when ^T: (member X:_) and ^T: (member Y:_)
         let coords = ResizeArray<float>(Seq.length xyObjs * 2)
         for pt in xyObjs do
             let x = (^T:(member X:_) pt)
             let y = (^T:(member Y:_) pt)
             coords.Add (float x)
             coords.Add (float y)
-        Path64<unit>(Floats.scaleUpAndRound scaleFactor coords, None)
+        Path64<unit>(coords, None)
 
     /// Creates a Path64 from a seq (IEnumerable) of objects with x and y members (lowercase).
-    /// The provided points are scaled up and rounded to integers
-    let inline createFromxyMembers (scaleFactor:float) (xyObjs: seq<^T>) : Path64<unit> = //when ^T: (member X:_) and ^T: (member Y:_)
+    /// The provided points are copied into a new ResizeArray.
+    let inline createFromxyMembers (xyObjs: seq<^T>) : Path64<unit> = //when ^T: (member X:_) and ^T: (member Y:_)
         let coords = ResizeArray<float>(Seq.length xyObjs * 2)
         for pt in xyObjs do
             let x = (^T:(member x:_) pt)
             let y = (^T:(member y:_) pt)
             coords.Add (float x)
             coords.Add (float y)
-        Path64<unit>(Floats.scaleUpAndRound scaleFactor coords, None)
+        Path64<unit>(coords, None)
+
+    // /// Creates a new Path64 using the ResizeArray of interleaved X and Y coordinates.
+    // /// The provided ResizeArray is first scaled up and rounded to integers, then copied into a new ResizeArray.
+    // let inline createFrom (scaleFactor:float) (xys:ResizeArray<float>) : Path64<unit> =
+    //     Path64<unit>(Floats.scaleUpAndRound scaleFactor xys, None)
+
+    // /// Creates a new Path64 using the ResizeArray of interleaved X and Y coordinates.
+    // /// The provided ResizeArray is first scaled up and rounded to integers, then copied into a new ResizeArray.
+    // /// The provided ResizeArray of Z values is used directly without copying, so it should not be modified after being passed in.
+    // let inline createFromZ (scaleFactor:float) (zs:ResizeArray<'Z>) (xys:ResizeArray<float>) : Path64<'Z> =
+    //     Path64<'Z>(Floats.scaleUpAndRound scaleFactor xys, Some zs)
+
+
+    // /// Creates a new Path64 using the seq of interleaved X and Y coordinates.
+    // /// The provided seq is first scaled up and rounded to integers, then copied into a new ResizeArray.
+    // let inline createFromSeq (scaleFactor:float) (xys:seq<float>) : Path64<unit> =
+    //     Path64<unit>(ResizeArray xys |> Floats.scaleUpAndRound scaleFactor , None)
+
+    // /// Creates a new Path64 using the seq of interleaved X and Y coordinates.
+    // /// The provided seq is first scaled up and rounded to integers, then copied into a new ResizeArray.
+    // /// The provided seq of Z values is shallow copied.
+    // let inline createFromSeqZ (scaleFactor:float) (zs:seq<'Z>) (xys:seq<float>) : Path64<'Z> =
+    //     Path64<'Z>( ResizeArray xys |> Floats.scaleUpAndRound scaleFactor, Some (ResizeArray(zs)))
+
+
+    // /// Creates a Path64 from a seq (IEnumerable) of objects with X and Y members (UPPERCASE).
+    // /// The provided points are scaled up and rounded to integers
+    // let inline createFromXYMembers (scaleFactor:float) (xyObjs: seq<^T> ) : Path64<unit> = // when ^T: (member X:_) and ^T: (member Y:_)
+    //     let coords = ResizeArray<float>(Seq.length xyObjs * 2)
+    //     for pt in xyObjs do
+    //         let x = (^T:(member X:_) pt)
+    //         let y = (^T:(member Y:_) pt)
+    //         coords.Add (float x)
+    //         coords.Add (float y)
+    //     Path64<unit>(Floats.scaleUpAndRound scaleFactor coords, None)
+
+    // /// Creates a Path64 from a seq (IEnumerable) of objects with x and y members (lowercase).
+    // /// The provided points are scaled up and rounded to integers
+    // let inline createFromxyMembers (scaleFactor:float) (xyObjs: seq<^T>) : Path64<unit> = //when ^T: (member X:_) and ^T: (member Y:_)
+    //     let coords = ResizeArray<float>(Seq.length xyObjs * 2)
+    //     for pt in xyObjs do
+    //         let x = (^T:(member x:_) pt)
+    //         let y = (^T:(member y:_) pt)
+    //         coords.Add (float x)
+    //         coords.Add (float y)
+    //     Path64<unit>(Floats.scaleUpAndRound scaleFactor coords, None)
 
     /// Enables Z values for this path, initializing them to the default value of 'Z.
     /// Returns a new Path64 with using same vertices array (without copying) and Z values initialized to the default value of 'Z.
@@ -343,15 +438,15 @@ module Path64 =
         Path64<'Z>(p.XYs, Some zs)
 
 
-    /// Creates a new Path64 with all coordinates multiplied a by the given factor and rounded to integers.
-    let inline scaleUp (scaleFactor:float) (p: Path64<'Z>) : Path64<'Z> =
-        let newXys = p.XYs |> Floats.scaleUpAndRound scaleFactor
-        Path64<'Z>(newXys, p.Zs)
+    // /// Creates a new Path64 with all coordinates multiplied a by the given factor and rounded to integers.
+    // let inline scaleUp (scaleFactor:float) (p: Path64<'Z>) : Path64<'Z> =
+    //     let newXys = p.XYs |> Floats.scaleUpAndRound scaleFactor
+    //     Path64<'Z>(newXys, p.Zs)
 
-    /// Creates a new Path64 with all coordinates divided by the given factor, without rounding.
-    let inline scaleDown (scaleFactor:float) (p: Path64<'Z>) : Path64<'Z> =
-        let newXys = p.XYs |> Floats.scaleDownWithoutRounding scaleFactor
-        Path64<'Z>(newXys, p.Zs)
+    // /// Creates a new Path64 with all coordinates divided by the given factor, without rounding.
+    // let inline scaleDown (scaleFactor:float) (p: Path64<'Z>) : Path64<'Z> =
+    //     let newXys = p.XYs |> Floats.scaleDownWithoutRounding scaleFactor
+    //     Path64<'Z>(newXys, p.Zs)
 
 
 
@@ -421,50 +516,82 @@ module Paths64 =
         Paths64<'Z>(ps)
 
 
-    /// Creates a Paths64 from a ResizeArrays of interleaved X and Y coordinates.
-    /// And not accepting Z values.
-    let inline createSingle (scaleFactor:float) (xys: ResizeArray<float>) : Paths64<unit> =
-        let r = ResizeArray<Path64<unit>>()
-        r.Add (Path64.createFrom scaleFactor xys)
-        r
-
-    /// Creates a Paths64 from a ResizeArrays of Z values and interleaved X and Y coordinates.
-    let inline createSingleZ (scaleFactor:float) (zs: ResizeArray<'Z>) (xys: ResizeArray<float>) : Paths64<'Z> =
-        let r = ResizeArray<Path64<'Z>>()
-        r.Add (Path64.createFromZ scaleFactor zs xys)
-        r
-
     /// Creates a new Paths64 using the ResizeArray of ResizeArrays of interleaved X and Y coordinates.
-    /// The provided ResizeArray is first scaled up and rounded to integers, then copied into a new ResizeArray.
-    let inline createFrom (scaleFactor:float) (xyss:ResizeArray<ResizeArray<float>>) : Paths64<unit> =
-        Paths64<unit>(xyss |> Rarr.map( fun xys -> Path64.createFrom scaleFactor xys))
+    /// The provided ResizeArray is copied into a new ResizeArray.
+    let inline createFrom (xyss:ResizeArray<ResizeArray<float>>) : Paths64<unit> =
+        Paths64<unit>(xyss |> Rarr.map( fun xys -> Path64.createFrom xys))
 
     /// Creates a new Paths64 using the ResizeArray of ResizeArrays of interleaved X and Y coordinates and Z values.
-    /// The provided ResizeArrays are first scaled up and rounded to integers, then copied into a new ResizeArray.
+    /// The provided ResizeArrays are copied into a new ResizeArray.
     /// The provided ResizeArrays of Z values are used directly without copying, so it should not be modified after being passed in.
-    let inline createFromZ (scaleFactor:float)  (xyss:ResizeArray<ResizeArray<float> * ResizeArray<'Z>>) : Paths64<'Z> =
+    let inline createFromZ  (xyss:ResizeArray<ResizeArray<float> * ResizeArray<'Z>>) : Paths64<'Z> =
         let ps = ResizeArray<Path64<'Z>>(xyss |> Rarr.len)
         for i = 0 to xyss |> Rarr.lastIdx do
             let xys, zs = xyss[i]
-            ps.Add (Path64.createFromZ scaleFactor zs xys)
+            ps.Add (Path64.createFromZ zs xys)
         Paths64<'Z>(ps)
 
     /// Creates a new Paths64 using the ResizeArray of ResizeArrays of interleaved X and Y coordinates.
-    /// The provided ResizeArray is first scaled up and rounded to integers, then copied into a new ResizeArray.
-    let inline createFromSeq (scaleFactor:float) (xyss:seq<#seq<float>>) : Paths64<unit> =
+    /// The provided ResizeArray is copied into a new ResizeArray.
+    let inline createFromSeq (xyss:seq<#seq<float>>) : Paths64<unit> =
         let ps = ResizeArray<Path64<unit>>()
         for xys in xyss do
-            ps.Add (Path64.createFromSeq scaleFactor xys)
+            ps.Add (Path64.createFromSeq xys)
         Paths64<unit>(ps)
 
     /// Creates a new Paths64 using the ResizeArray of ResizeArrays of interleaved X and Y coordinates and Z values.
-    /// The provided ResizeArrays are first scaled up and rounded to integers, then copied into a new ResizeArray.
+    /// The provided ResizeArrays are copied into a new ResizeArray.
     /// The provided ResizeArrays of Z values are used directly without copying, so it should not be modified after being passed in.
-    let inline createFromSeqZ (scaleFactor:float)  (xyss:seq<#seq<float> * #seq<'Z>>) : Paths64<'Z> =
+    let inline createFromSeqZ  (xyss:seq<#seq<float> * #seq<'Z>>) : Paths64<'Z> =
         let ps = ResizeArray<Path64<'Z>>()
         for xys, zs in xyss do
-            ps.Add (Path64.createFromSeqZ scaleFactor zs xys)
+            ps.Add (Path64.createFromSeqZ zs xys)
         Paths64<'Z>(ps)
+
+    // /// Creates a Paths64 from a ResizeArrays of interleaved X and Y coordinates.
+    // /// And not accepting Z values.
+    // let inline createSingle (*scaleFactor:float*) (xys: ResizeArray<float>) : Paths64<unit> =
+    //     let r = ResizeArray<Path64<unit>>()
+    //     r.Add (Path64.createFrom scaleFactor xys)
+    //     r
+
+    // /// Creates a Paths64 from a ResizeArrays of Z values and interleaved X and Y coordinates.
+    // let inline createSingleZ (scaleFactor:float) (zs: ResizeArray<'Z>) (xys: ResizeArray<float>) : Paths64<'Z> =
+    //     let r = ResizeArray<Path64<'Z>>()
+    //     r.Add (Path64.createFromZ scaleFactor zs xys)
+    //     r
+
+    // /// Creates a new Paths64 using the ResizeArray of ResizeArrays of interleaved X and Y coordinates.
+    // /// The provided ResizeArray is first scaled up and rounded to integers, then copied into a new ResizeArray.
+    // let inline createFrom (scaleFactor:float) (xyss:ResizeArray<ResizeArray<float>>) : Paths64<unit> =
+    //     Paths64<unit>(xyss |> Rarr.map( fun xys -> Path64.createFrom scaleFactor xys))
+
+    // /// Creates a new Paths64 using the ResizeArray of ResizeArrays of interleaved X and Y coordinates and Z values.
+    // /// The provided ResizeArrays are first scaled up and rounded to integers, then copied into a new ResizeArray.
+    // /// The provided ResizeArrays of Z values are used directly without copying, so it should not be modified after being passed in.
+    // let inline createFromZ (scaleFactor:float)  (xyss:ResizeArray<ResizeArray<float> * ResizeArray<'Z>>) : Paths64<'Z> =
+    //     let ps = ResizeArray<Path64<'Z>>(xyss |> Rarr.len)
+    //     for i = 0 to xyss |> Rarr.lastIdx do
+    //         let xys, zs = xyss[i]
+    //         ps.Add (Path64.createFromZ scaleFactor zs xys)
+    //     Paths64<'Z>(ps)
+
+    // /// Creates a new Paths64 using the ResizeArray of ResizeArrays of interleaved X and Y coordinates.
+    // /// The provided ResizeArray is first scaled up and rounded to integers, then copied into a new ResizeArray.
+    // let inline createFromSeq (scaleFactor:float) (xyss:seq<#seq<float>>) : Paths64<unit> =
+    //     let ps = ResizeArray<Path64<unit>>()
+    //     for xys in xyss do
+    //         ps.Add (Path64.createFromSeq scaleFactor xys)
+    //     Paths64<unit>(ps)
+
+    // /// Creates a new Paths64 using the ResizeArray of ResizeArrays of interleaved X and Y coordinates and Z values.
+    // /// The provided ResizeArrays are first scaled up and rounded to integers, then copied into a new ResizeArray.
+    // /// The provided ResizeArrays of Z values are used directly without copying, so it should not be modified after being passed in.
+    // let inline createFromSeqZ (scaleFactor:float)  (xyss:seq<#seq<float> * #seq<'Z>>) : Paths64<'Z> =
+    //     let ps = ResizeArray<Path64<'Z>>()
+    //     for xys, zs in xyss do
+    //         ps.Add (Path64.createFromSeqZ scaleFactor zs xys)
+    //     Paths64<'Z>(ps)
 
 
 
@@ -490,28 +617,46 @@ module Paths64 =
         Paths64<'Z>(rs)
 
 
-    /// Creates a new Paths64 with all coordinates multiplied a by the given factor and rounded to integers.
-    let inline scaleUp (scaleFactor:float) (p: Paths64<'Z>) : Paths64<'Z> =
-        p |> Rarr.map (Path64.scaleUp scaleFactor)
+    // /// Creates a new Paths64 with all coordinates multiplied a by the given factor and rounded to integers.
+    // let inline scaleUp (scaleFactor:float) (p: Paths64<'Z>) : Paths64<'Z> =
+    //     p |> Rarr.map (Path64.scaleUp scaleFactor)
 
-    /// Creates a new Paths64 with all coordinates divided by the given factor, without rounding.
-    let inline scaleDown (scaleFactor:float) (p: Paths64<'Z>) : Paths64<'Z> =
-        p |> Rarr.map (Path64.scaleDown scaleFactor)
+    // /// Creates a new Paths64 with all coordinates divided by the given factor, without rounding.
+    // let inline scaleDown (scaleFactor:float) (p: Paths64<'Z>) : Paths64<'Z> =
+    //     p |> Rarr.map (Path64.scaleDown scaleFactor)
 
+
+
+    // /// Creates a Paths64 from a seq (IEnumerable) of objects with X and Y members (UPPERCASE).
+    // /// The provided points are scaled up and rounded to integers
+    // let inline createFromXYMembers (scaleFactor:float) (xyObjss: seq<#seq<'T>> when 'T: (member X:_) and 'T: (member Y:_) ) : Paths64<unit> =
+    //     let ps = ResizeArray<Path64<unit>>()
+    //     for xys in xyObjss do
+    //         ps.Add (Path64.createFromXYMembers scaleFactor xys)
+    //     Paths64<unit>(ps)
+
+    // /// Creates a Paths64 from a seq (IEnumerable) of objects with x and y members (lowercase).
+    // /// The provided points are scaled up and rounded to integers
+    // let inline createFromxyMembers (scaleFactor:float) (xyObjss: seq<#seq<'T>> when 'T: (member x:_) and 'T: (member y:_) ) : Paths64<unit> =
+    //     let ps = ResizeArray<Path64<unit>>()
+    //     for xys in xyObjss do
+    //         ps.Add (Path64.createFromxyMembers scaleFactor xys)
+    //     Paths64<unit>(ps)
 
 
     /// Creates a Paths64 from a seq (IEnumerable) of objects with X and Y members (UPPERCASE).
     /// The provided points are scaled up and rounded to integers
-    let inline createFromXYMembers (scaleFactor:float) (xyObjss: seq<#seq<'T>> when 'T: (member X:_) and 'T: (member Y:_) ) : Paths64<unit> =
+    let inline createFromXYMembers (xyObjss: seq<#seq<'T>> when 'T: (member X:_) and 'T: (member Y:_) ) : Paths64<unit> =
         let ps = ResizeArray<Path64<unit>>()
         for xys in xyObjss do
-            ps.Add (Path64.createFromXYMembers scaleFactor xys)
+            ps.Add (Path64.createFromXYMembers xys)
         Paths64<unit>(ps)
 
     /// Creates a Paths64 from a seq (IEnumerable) of objects with x and y members (lowercase).
     /// The provided points are scaled up and rounded to integers
-    let inline createFromxyMembers (scaleFactor:float) (xyObjss: seq<#seq<'T>> when 'T: (member x:_) and 'T: (member y:_) ) : Paths64<unit> =
+    let inline createFromxyMembers (xyObjss: seq<#seq<'T>> when 'T: (member x:_) and 'T: (member y:_) ) : Paths64<unit> =
         let ps = ResizeArray<Path64<unit>>()
         for xys in xyObjss do
-            ps.Add (Path64.createFromxyMembers scaleFactor xys)
+            ps.Add (Path64.createFromxyMembers xys)
         Paths64<unit>(ps)
+

@@ -30,11 +30,11 @@ on a single coordinate type:
 
 - Polygon boolean ops (intersection, union, difference, XOR) and PolyTree output
 
-- like in `clipper2-ts` 64-bit integer coordinates are represented by `float` (64-bit) so the output is
-  Fable-friendly (no JS `bigint`) .
+- Coordinates are stored as 64-bit `float` values, so the output is Fable-friendly
+  (no JS `bigint`) and fractional coordinates are preserved directly.
 
-- No scaling of input coordinates, like PathD does in `clipper2-ts` to support floating-point input.
-Instead, users can choose to scale their coordinates before passing them to Klip if they need more precision.
+- No separate PathD-style API is needed for floating-point input. Klip's regular path
+  types accept floats directly, and the engine does not scale them onto an integer grid.
 
 - No polygon offsetting, line clipping, rect clipping, Minkowski sums,
   triangulation, or arbitrary-precision decimal paths
@@ -57,15 +57,16 @@ What this means in practice:
 - Because there is no longer an integer grid, complex inputs can occasionally resolve into a few
   more (or fewer) *touching* contours than an integer-snapped clipper would. Areas stay within the
   usual tolerances, and a follow-up `union` simplifies touching contours if needed.
+- You do not need to scale coordinates before clipping to preserve fractional precision. Use your
+  source units directly unless your own application deliberately wants a different coordinate unit.
 - If you need integer output, **round the solution coordinates yourself after clipping** (e.g. with
-  `System.Math.Round`). Note that, because they delegate to `jsRound` (now the identity function),
-  `Floats.round` is currently a no-op and `Floats.scaleUpAndRound` only scales without rounding.
+  `System.Math.Round`).
 
 ### Core Types
 
 Original Documentation: https://www.angusj.com/clipper2
 
-All types are still named like the original C# version, where the `..64` suffix indicated 64-bit integers. In Klip the XY coordinates are stored as `float`, and there is no `..D` suffix API that scales floating-point paths to integer paths.
+All types are still named like the original C# version, where the `..64` suffix indicated 64-bit integers. In Klip the XY coordinates are stored as `float`, and there is no separate `..D` suffix API because the regular path types already accept and preserve floating-point coordinates.
 
 ### New Generic `'Z` Metadata
 `'Z` is the generic type parameter for user-defined metadata that can be attached to vertices. It is optional and defaults to `unit` if not used.

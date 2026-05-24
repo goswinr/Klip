@@ -119,4 +119,4 @@ do
                 Clipper2Lib.FillRule.EvenOdd,
                 precision = i)
         Util.drawC i cr
-        printfn $"Klipper: Scale: {scale}, Result Paths: {cr.Count}\n-"
+        printfn $"Clipper2: Scale: {scale}, Result Paths: {cr.Count}\n-"

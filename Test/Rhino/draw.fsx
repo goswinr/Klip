@@ -1,8 +1,9 @@
 ﻿#r "C:/Program Files/Rhino 8/System/RhinoCommon.dll"
+#r "D:/Git/_Euclid_/Klip/bin/Release/netstandard2.0/Klip.dll"
 #r "nuget: Clipper2, 2.0.0"
 #r "nuget: Rhino.Scripting.FSharp, 0.14.0"
 #r "nuget: ResizeArrayT, 0.26.0"
-#r "D:/Git/_Euclid_/Klip/bin/Release/netstandard2.0/Klip.dll"
+#r "nuget: Fesher, 0.5.0"
 
 open System
 open System.IO
@@ -13,6 +14,7 @@ open Rhino.Scripting
 open Rhino.Scripting.FSharp
 open Rhino.Geometry
 open ResizeArrayT
+open Fesher
 
 type rs = RhinoScriptSyntax
 
@@ -54,6 +56,22 @@ module U =
                 if j<>0 || p.x <> l.x || p.y <> l.y then // skip start if same as end
                     printfn $"    PointD({f p.x}, {f p.y})" 
             printfn "    ]"
+    
+    let printKlip (scale)  (xy:XY[][]) = 
+        
+        let f (x:float) =  
+            let s = $"{x}"
+            if s.Contains "." then s else $"{s}.0"
+        
+        for i, ps in Seq.indexed xy do 
+            printfn $"let p{i} = Path64.createFromSeq {scale} ["
+            let l = ps.[ps.Length-1]
+            for j, p in Seq.indexed ps do  
+                if j<>0 || p.x <> l.x || p.y <> l.y then // skip start if same as end
+                    printfn $"    {f p.x}; {f p.y}" 
+            printfn "    ]"        
+            
+            
             
     let printXYInt scale (xy:XY[][]) = 
         let tint(x) = int(round ((10. ** float scale)*x) )
@@ -81,35 +99,34 @@ module U =
                 printfn $"{e}"
     
     
-    
-    let drawK sc (ps:Paths64<_>) =
+    let drawK tool sc (ps:Paths64<_>) =
         for j, p in Seq.indexed ps do
             try
                 if p.PointCount > 2 then
                     p.XYs
                     |> Seq.chunkBySize 2
                     |> Seq.map (fun xy -> Point3d(xy[0], xy[1], 0) )
-                    |> drawRh $"scale {sc}::Klip"
+                    |> drawRh $"scale {sc}::{tool}"
                 else
                     rs.AddTextDot($"short", Point3d(p.XYs[0], p.XYs[1], 0) )
-                    |> rs.setLayer $"scale {sc}::Klip"
+                    |> rs.setLayer $"scale {sc}::{tool}"
             with e ->
-                eprintfn $"failed: Klip::scale {sc}::{j} with {p.PointCount} points"
+                eprintfn $"failed: {tool}::scale {sc}::{j} with {p.PointCount} points"
                 printfn $"{e}"
 
 
-    let drawD sc (ps:PathsD) =
+    let drawD tool sc (ps:PathsD) =
         for j, p in Seq.indexed ps do
             try
                 if p.Count > 2 then
                     p
                     |> Seq.map (fun xy -> Point3d(xy.x, xy.y, 0) )
-                    |> drawRh $"scale {sc}::Clipper2"
+                    |> drawRh $"scale {sc}::{tool}"
                 else
                     rs.AddTextDot($"small", Point3d(p.[0].x, p.[1].y, 0) )
-                    |> rs.setLayer $"scale {sc}::Clipper2"
+                    |> rs.setLayer $"scale {sc}::{tool}"
             with e ->
-                eprintfn $"failed: Clipper2 scale {sc}::{j} with {p.Count} points"
+                eprintfn $"failed: {tool} scale {sc}::{j} with {p.Count} points"
                 printfn $"{e}"
                 
     let draw64 lay (ps:Paths64) =
@@ -155,52 +172,69 @@ module U =
 let polys() = 
         
     let xy =  
-        U.readPolyJson "D:/Git/_Euclid_/Klip/Test/Rhino/polysXY.json"
-        //U.selectInRhino() 
+        // U.readPolyJson "D:/Git/_Euclid_/Klip/Test/Rhino/polysXY.json"
+        U.selectInRhino() 
    
     printfn $"Original Paths: {xy.Length}"
     rs.DisableRedraw()
-    //U.drawXY xy
+    U.drawXY xy
+    U.printKlip (10. ** float 2) xy 
     
     
-    let psD = U.convertD xy
-
     
     //let xys = xy |> Array.sortBy ( fun ps -> ps |> Array.map ( fun p -> p.x + p.y) |> Array.min) 
     
-    
-    for i = 2 to 6 do
+    for i = 2 to 2 do
         let scale = 10. ** float i
+        let psD = xy |> U.convertD
+        let psK = xy |> Paths64.createFromxyMembers scale
         
         // Klip:
-        //let kr =
-            //xy
-            //|> Paths64.createFromxyMembers scale
-            //|> Klipper.unionSelf
-            //|> Paths64.scaleDown scale
-        //U.drawK i kr
-        //rs.Print $"Klip:    Scale: {scale}, Result Paths: {kr.Count}" 
+        let kr =
+            psK
+            |> Klipper.unionSelf
+            |> Paths64.scaleDown scale
+        U.drawK "Klip" i kr
+        Printfn.darkGreen $"Klip:    Scale: {scale}, Result Paths: {kr.Count}" 
         
-
-        // Clipper2:
-        let rec loop k (p:PathsD) = 
+        // KlipR:
+        let rec loopKlip k (p:Paths64<unit>) = 
             //let r = U.unionFirstWithRest i r
-            let r = Clipper.BooleanOp( ClipType.Union, p, null, FillRule.NonZero, precision = i)
+            let r = Klipper.booleanOp( Klip.ClipType.Union, p, null, Klip.FillRule.NonZero,  None)
             if k < 4 && r.Count > 1 then  
-                rs.PrintnBlue $"Loop {k} : Result Paths: {r.Count} ..."
-                loop (k+1) r
+                Printfn.lightRed $"Loop {k} : Result Paths: {r.Count} ..."
+                loopKlip (k+1) r
             else
                 if r.Count <> 1 then 
                     //U.printXY xy
                     //U.printXYInt i xy
-                    rs.PrintnRed $"Loops {k} : Scale: {scale}, Result Paths: {r.Count}"
+                    Printfn.red $"Loops {k} : Scale: {scale}, Result Paths: {r.Count}"
                 else 
-                    rs.PrintnGreen $"Loops {k} : Scale: {scale}, All Unioned" 
-                    printfn $"Clipper.IsPositive:{Clipper.IsPositive r[0]}"
-                U.drawD i r
-               
+                    Printfn.green $"Loops {k} : Scale: {scale}, Result Paths: {r.Count}" 
+                    // printfn $"Clipper2.IsPositive:{Clipper.IsPositive r[0]}"
+                U.drawK "KlipR" i r 
         
-        loop 1 psD
+        loopKlip 1 psK
+        
+
+        // Clipper2:
+        let rec loopClipper2 k (p:PathsD) = 
+            //let r = U.unionFirstWithRest i r
+            let r = Clipper.BooleanOp( ClipType.Union, p, null, FillRule.NonZero, precision = i)
+            if k < 4 && r.Count > 1 then  
+                Printfn.blue $"Loop {k} : Result Paths: {r.Count} ..."
+                loopClipper2 (k+1) r
+            else
+                if r.Count <> 1 then 
+                    //U.printXY xy
+                    //U.printXYInt i xy
+                    Printfn.red $"Loops {k} : Scale: {scale}, Result Paths: {r.Count}"
+                else 
+                    Printfn.green $"Loops {k} : Scale: {scale}, Result Paths: {r.Count}" 
+                    // printfn $"Clipper2.IsPositive:{Clipper.IsPositive r[0]}"
+                U.drawD "Clipper2" i r 
+        
+        loopClipper2 1 psD
         
 let one() = 
     let i = 5 //or 3 
@@ -286,13 +320,30 @@ let selfFail2() =
         let r = Clipper.Union(ab, FillRule.Negative)
         U.draw64 $"FillRule.Negative = {r.Count}, a = {ap}, b = {bp}" r
 
+
+let removeSelfIntersection() = 
+        
+    let xy =  U.selectInRhino() 
+
+    rs.DisableRedraw() 
+
+    let psK = xy |> Paths64.createFromxyMembers 1.0
+
+    let r = Klipper.booleanOp( Klip.ClipType.Union, psK, null, Klip.FillRule.Positive,  None)
+
+    U.drawK "KlipR" 0 r 
+    
+
+      
     
     
     
-polys()
+// polys()
 //one()
 //selfFail()
 //selfFail2()
+removeSelfIntersection()
+
     
     
     
@@ -304,7 +355,7 @@ polys()
         
         
         
-        
+         
         
         
         

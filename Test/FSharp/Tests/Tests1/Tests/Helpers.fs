@@ -7,7 +7,7 @@ module Helpers =
 
     /// Build a Path64<unit> from a flat array of interleaved x,y coordinates.
     let path (xys: float[]) : Path64<unit> =
-        Path64.createFrom 1.0 (ResizeArray xys)
+        Path64.createFrom (ResizeArray xys)
 
     /// Build a Paths64<unit> from a list of paths.
     let paths (ps: Path64<unit> list) : Paths64<unit> =
