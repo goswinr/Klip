@@ -23,7 +23,7 @@ module Helpers =
         s
 
     /// Snaps every coordinate of every output path to the nearest integer.
-    /// The engine now works with unrounded floats (Geo.jsRound is the identity),
+    /// The engine now works with unrounded floats ,
     /// so solution coordinates may carry sub-unit fractional parts. Rounding here,
     /// just before asserting on an output path, restores the integer-grid values
     /// the tests expect. Returns a new Paths64; Z values are preserved.

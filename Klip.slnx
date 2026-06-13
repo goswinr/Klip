@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/Test/" />
+  <Folder Name="/Test/FSharp/">
+    <Project Path="Test/FSharp/Benchmark/Benchmark.csproj" />
+  </Folder>
+  <Folder Name="/Test/FSharp/Tests/">
+    <Project Path="Test/FSharp/Tests/Tests1/Tests1.fsproj" />
+  </Folder>
+  <Folder Name="/Test/FSharp/Tests/Tests2/">
+    <Project Path="Test/FSharp/Tests/Tests2/TestsZ.fsproj" />
+  </Folder>
+  <Project Path="Klip.fsproj" />
+</Solution>

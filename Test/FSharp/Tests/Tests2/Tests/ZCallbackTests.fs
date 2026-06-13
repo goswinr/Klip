@@ -3,7 +3,7 @@ namespace Klip.Tests.Z
 open System.Collections.Generic
 open Microsoft.VisualStudio.TestTools.UnitTesting
 open Klip
-open Klip.KlipInternal
+open Klip.KlipInternalTypes
 
 [<TestClass>]
 type ZCallbackTests () =
@@ -40,10 +40,7 @@ type ZCallbackTests () =
         let c = Clipper64<int>()
         c.ZCallback <- Some callback
         c.AddSubject(subject)
-
-        let solution = Paths64<int>()
-        let ok = c.Execute(ClipType.Union, FillRule.NonZero, solution)
-        Assert.IsTrue(ok)
+        let solution ,_  = c.Execute(ClipType.Union, FillRule.NonZero)
         Assert.AreEqual(1, solution.Count, "expected one resolved polygon")
         Assert.IsTrue(calls.Count > 0, "callback should fire at self-intersections")
 
@@ -66,9 +63,7 @@ type ZCallbackTests () =
         c.AddSubject(subject)
         c.AddClip(clip)
 
-        let solution = Paths64<int>()
-        let ok = c.Execute(ClipType.Union, FillRule.NonZero, solution)
-        Assert.IsTrue(ok)
+        let solution ,_  = c.Execute(ClipType.Union, FillRule.NonZero)
         Assert.IsTrue(calls.Count >= 6,
             sprintf "expected >=6 intersection callbacks for two-triangle union, got %d" calls.Count)
         for (x, y) in calls do
@@ -86,7 +81,7 @@ type ZCallbackTests () =
                 invoked <- invoked + 1
                 42
 
-        let solution = Klipper.unionZ callback clip subject
+        let solution = KlipperZ.union (Some callback) clip subject
         Assert.AreEqual(1, solution.Count)
         Assert.IsTrue(invoked > 0, "Klipper.unionZ should route the callback through")
 
@@ -106,8 +101,7 @@ type ZCallbackTests () =
         c.ZCallback <- Some callback
         c.AddSubject(subject)
         c.AddClip(clip)
-        let solution = Paths64<int>()
-        c.Execute(ClipType.Union, FillRule.NonZero, solution) |> ignore
+        let solution ,_  = c.Execute(ClipType.Union, FillRule.NonZero)
 
         Assert.AreEqual(0, invoked, "no edges intersect, callback must not fire")
         Assert.AreEqual(2, solution.Count)
@@ -129,9 +123,7 @@ type ZCallbackTests () =
         c.AddSubject(subject)
         c.AddClip(clip)
 
-        let solution = Paths64<int>()
-        let ok = c.Execute(ClipType.Union, FillRule.NonZero, solution)
-        Assert.IsTrue(ok)
+        let solution ,_  = c.Execute(ClipType.Union, FillRule.NonZero)
         Assert.AreEqual(1, solution.Count)
 
         let p = solution.[0]
@@ -178,3 +170,27 @@ type ZCallbackTests () =
             Assert.AreEqual(7, zs.[0])
             Assert.AreEqual(7, zs.[2])
         | None -> Assert.Fail("expected Zs to be Some")
+
+    [<TestMethod>]
+    member _.OpenPathIntersectionInvokesCallbackOncePerCrossing () =
+        // An open polyline crossing a closed clip square at exactly two points:
+        // the Z callback must fire exactly once per crossing. (Regression test for
+        // a duplicated setZ call in intersectOpenEdges that invoked the callback
+        // twice for the crossing where the open edge was already 'hot'.)
+        let openSubject = mkPaths [ pathZ [| -5.0; 4.8; 15.0; 5.4 |] 1 ]
+        let clip = mkPaths [ pathZ [| 0.0;0.0; 10.0;0.0; 10.0;10.0; 0.0;10.0 |] 2 ]
+
+        let calls = ResizeArray<float * float>()
+        let callback : ZCallback64<int> =
+            fun (_ae1, _ae2, x, y, _z) ->
+                calls.Add((x, y))
+                99
+
+        let c = Clipper64<int>()
+        c.ZCallback <- Some callback
+        c.AddOpenSubject(openSubject)
+        c.AddClip(clip)
+        let _closed, opened = c.Execute(ClipType.Intersection, FillRule.NonZero)
+        Assert.AreEqual(1, opened.Count, "expected one clipped open segment")
+        Assert.AreEqual(2, calls.Count,
+            sprintf "expected exactly 2 callback invocations (one per crossing), got %d" calls.Count)

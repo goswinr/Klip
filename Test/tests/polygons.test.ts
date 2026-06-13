@@ -1,5 +1,5 @@
 // Comprehensive Polygon Clipping Tests — mirrors clipper2-ts/tests/polygons.test.ts
-// adapted to Klip's exposed API (booleanOp / booleanOpWithPolyTree / polyTreeToPaths64).
+// adapted to Klip's exposed API (booleanOp / booleanOpPolyTree / polyTreeToPaths64).
 //
 // Klip currently doesn't expose open-path clipping through the high-level
 // surface, so test cases that include `SUBJECTS_OPEN` rows have those rows
@@ -10,8 +10,8 @@ import { Klip } from './klip-api';
 import { ClipType, FillRule, TestDataParser } from './test-data-parser';
 import {
   toKlipPaths,
+  makePath,
   areaPaths,
-  newPolyTree,
   treeArea,
 } from './adapter';
 
@@ -33,7 +33,6 @@ describe('Comprehensive Polygon Clipping Tests', () => {
         subj,
         clip.length > 0 ? clip : null,
         testCase.fillRule,
-        undefined,
       );
 
       const measuredCount = solution.length;
@@ -117,12 +116,11 @@ describe('Comprehensive Polygon Clipping Tests', () => {
       const clipOrNull = clip.length > 0 ? clip : null;
 
       const solutionPaths = Klip.booleanOp(
-        testCase.clipType, subj, clipOrNull, testCase.fillRule, undefined,
+        testCase.clipType, subj, clipOrNull, testCase.fillRule,
       );
 
-      const solutionTree = newPolyTree();
-      Klip.booleanOpWithPolyTree(
-        testCase.clipType, subj, clipOrNull, solutionTree, testCase.fillRule, undefined,
+      const solutionTree = Klip.booleanOpPolyTree(
+        testCase.clipType, subj, clipOrNull, testCase.fillRule,
       );
 
       const pathsFromTree = Klip.polyTreeToPaths64(solutionTree);
@@ -154,16 +152,33 @@ describe('Comprehensive Polygon Clipping Tests', () => {
     expect(testCase1!.expectedCount).toBe(1);
 
     const subj = toKlipPaths(testCase1!.subjects);
-    const solution1 = Klip.booleanOp(ClipType.Union, subj, null, FillRule.NonZero, undefined);
+    const solution1 = Klip.booleanOp(ClipType.Union, subj, null, FillRule.NonZero);
 
     expect(solution1.length).toBe(1);
     const area1 = Math.round(areaPaths(solution1));
     expect(area1).toBe(9000);
   });
 
+  test('should expose the documented closed-path wrapper helpers', () => {
+    const positiveSquare = makePath([0, 0, 10, 0, 10, 10, 0, 10]);
+    const negativeSquare = makePath([0, 0, 0, 10, 10, 10, 10, 0]);
+
+    const checked = Klip.unionSelfChecked([negativeSquare]);
+    expect(checked.length).toBe(1);
+    expect(Math.round(areaPaths(checked))).toBe(100);
+
+    const positive = Klip.removeSelfIntersectionsPositive(positiveSquare);
+    expect(positive.length).toBe(1);
+    expect(Math.round(areaPaths(positive))).toBe(100);
+
+    const negative = Klip.removeSelfIntersectionsNegative(negativeSquare);
+    expect(negative.length).toBe(1);
+    expect(Math.round(areaPaths(negative))).toBe(100);
+  });
+
   test('should handle edge cases gracefully', () => {
     // Empty subjects.
-    const empty = Klip.booleanOp(ClipType.Union, [], null, FillRule.NonZero, undefined);
+    const empty = Klip.booleanOp(ClipType.Union, [], null, FillRule.NonZero);
     expect(empty.length).toBe(0);
 
     // Single-point path: should be filtered out.
@@ -172,7 +187,6 @@ describe('Comprehensive Polygon Clipping Tests', () => {
       [{ xys: [10, 10] }],
       null,
       FillRule.NonZero,
-      undefined,
     );
     expect(single.length).toBe(0);
 
@@ -182,7 +196,6 @@ describe('Comprehensive Polygon Clipping Tests', () => {
       [{ xys: [0, 0, 10, 10] }],
       null,
       FillRule.NonZero,
-      undefined,
     );
     expect(two.length).toBe(0);
   });

@@ -17,8 +17,7 @@ namespace Klip
 open System
 open System.Collections.Generic
 open Klip.Null
-open Klip.KlipInternal
-
+open Klip.KlipInternalTypes
 
 
 /// While most vertices in clipping solutions will correspond to input (subject and clip) vertices,
@@ -26,10 +25,11 @@ open Klip.KlipInternal
 /// This callback facilitates assigning user-defined Z objects at these intersections.
 /// To aid the user in determining appropriate values,
 /// the function receives the Active Edges at both ends of the intersecting segments.
-/// The Argument order prioritize subject vertices over clip vertices
+/// The argument order prioritizes subject vertices over clip vertices.
 ///
-/// The current computed X and Y coordinates of the intersection , and the default assigned adjacent Z object, maybe null
-/// It returns the a new Z object.
+/// It also receives the computed X and Y coordinates of the intersection,
+/// and the default assigned adjacent Z object (which may be null).
+/// It returns a new Z object.
 /// They are called `Z` in Clipper2, but don't confuse them with 3D coordinates.
 /// These can be any user-defined objects.
 type ZCallback64<'Z> =
@@ -37,578 +37,36 @@ type ZCallback64<'Z> =
     option<ActiveEdge<'Z>> * option<ActiveEdge<'Z>> * float * float * 'Z -> 'Z
 
 
-
-//#region module Clip
-
-// Internal helper functions that were `private static` on ClipperBase in TS.
-module internal Clip =
-
-    [<NoComparison;NoEquality>]
-    type State = {
-        /// `openPathsEnabled` is a process-global flag set by Clipper64 before each execute.
-        mutable openPathsEnabled: bool   }
-
-    let state: State = {openPathsEnabled = true }
-
-
-    // use in getLineIntersectPt only
-    let inline evalAtTruncate (from:float) (param: float) (len: float): float =
-        // This is the only place where new x and y coordinates are created
-        // CLipper2 C#: avoid using constructor (and rounding too) as they affect performance //664
-        // seems to apply for C++ only ? https://github.com/AngusJohnson/Clipper2/pull/657#issuecomment-1732206640
-        // Math.Truncate(from + param * len)
-        Geo.jsRound(from + param * len)
-
-    let inline evalAtRound (from:float) (param: float) (len: float): float =
-        Geo.jsRound(from + param * len)
-
-
-    // GetLineIntersectPt - returns the intersection point if non-parallel, or null.
-    // The point will be constrained to seg1. However, it's possible that the point
-    // won't be inside seg2, even when it hasn't been constrained (ie inside seg1).
-    let getLineIntersectPt(ae1: ActiveEdge<'Z>, ae2: ActiveEdge<'Z>, topY: float) : IntersectNode<'Z> =
-        // TS comment:
-        // GetLineIntersectPt - returns the intersection point if non-parallel, or null.
-        // The point will be constrained to seg1. However, it's possible that the point
-        // won't be inside seg2, even when it hasn't been constrained (ie inside seg1).
-        // Returns Point64 | null to avoid allocating a wrapper object on every call.
-        // getLineIntersectPt(ae1.bot, ae1.top, ae2.bot, ae2.top);
-        // getLineIntersectPt(  ln1a: Point64, ln1b: Point64,   ln2a: Point64, ln2b: Point64)
-
-        // C# comment:
-        // GetLineIntersectPt - a 'true' result is non-parallel. The 'ip' will also
-        // be constrained to seg1. However, it's possible that 'ip' won't be inside
-        // seg2, even when 'ip' hasn't been constrained (ie 'ip' is inside seg1).
-
-        let dy1 = ae1.topY - ae1.botY
-        let dx1 = ae1.topX - ae1.botX
-        let dy2 = ae2.topY - ae2.botY
-        let dx2 = ae2.topX - ae2.botX
-        let det = dy1 * dx2 - dy2 * dx1
-        if det = 0.0 then
-            { // see AddNewIntersectNode:
-            x = ae1.curX
-            y = topY
-            z = Null.DEFZ()
-            edge1 = ae1
-            edge2 = ae2
-            }
-        else
-            let t = ((ae1.botX - ae2.botX) * dy2 - (ae1.botY - ae2.botY) * dx2) / det
-            if t <= 0.0 then
-                {
-                x = ae1.botX
-                y = ae1.botY
-                z = ae1.botZ
-                edge1 = ae1
-                edge2 = ae2
-                }
-            elif t >= 1.0 then
-                {
-                x = ae1.topX
-                y = ae1.topY
-                z = ae1.topZ
-                edge1 = ae1
-                edge2 = ae2
-                }
-            else
-                // C#: avoid using constructor (and rounding too) as they affect performance //664
-                // Use Math.trunc to match C# (long) cast behavior which truncates towards zero
-                {
-                x = evalAtTruncate ae1.botX t dx1
-                y = evalAtTruncate ae1.botY t dy1
-                z = Null.DEFZ()
-                edge1 = ae1
-                edge2 = ae2
-                }
-
-    // actually should be called setClosestPtOnSegment, but kept the original name for consistency
-    let getClosestPtOnSegment (xn: IntersectNode<'Z>, seg1X: float, seg1Y: float, seg2X: float, seg2Y: float): unit =
-        if seg1X = seg2X && seg1Y = seg2Y then
-            xn.x <- seg1X
-            xn.y <- seg1Y
-        else
-            let dx = seg2X - seg1X
-            let dy = seg2Y - seg1Y
-            let q = ((xn.x - seg1X) * dx + (xn.y - seg1Y) * dy) / (dx * dx + dy * dy)
-            if q <= 0.0 then
-                xn.x <- seg1X
-                xn.y <- seg1Y
-            elif q >= 1.0 then
-                xn.x <- seg2X
-                xn.y <- seg2Y
-            else
-                // C#: use MidpointRounding.ToEven in order to explicitly match the nearby int behaviour on the C++ side
-                // xn.x <- Geo.jsRound(seg1X + q * dx) //, MidpointRounding.ToEven)
-                // xn.y <- Geo.jsRound(seg1Y + q * dy) //, MidpointRounding.ToEven)
-                // TODO
-                // or do consistent rounding with getLineIntersectPt ??
-                xn.x <- evalAtRound seg1X q dx
-                xn.y <- evalAtRound seg1Y q dy
-
-    let inline localMinimaEqual (localMinima: LocalMinima<'Z>, other: LocalMinima<'Z>) : bool =
-        isNotNull other
-        &&
-        localMinima.vertex === other.vertex
-
-    let inline xyEqual(ax: float, ay: float, bx: float, by: float) : bool =
-        // previously to match Clipper2:
-        // ax = bx && ay = by
-        Geo.coordEq ax bx && Geo.coordEq ay by
-
-    let inline xyNotEqual(ax: float, ay: float, bx: float, by: float) : bool =
-        // ax <> bx || ay <> by
-        Geo.coordNeq ax bx || Geo.coordNeq ay by
-
-    let inline isOdd (v: int) : bool =
-        (v &&& 1) <> 0
-
-    let inline isHotEdge (ae: ActiveEdge<'Z>) : bool =
-        isNotNull ae.outrec
-
-    let inline isOpen (ae: ActiveEdge<'Z>) : bool =
-        state.openPathsEnabled && ae.localMin.isOpen
-
-    let inline isOpenEndVertex (v: Vertex<'Z>) : bool =
-        v.flags &&& (VertexFlags.OpenStart ||| VertexFlags.OpenEnd) <> VertexFlags.None
-
-    let inline isOpenEnd (ae: ActiveEdge<'Z>) : bool =
-        state.openPathsEnabled &&
-        ae.localMin.isOpen &&
-        isOpenEndVertex(ae.vertexTop)
-
-    let getPrevHotEdge (ae: ActiveEdge<'Z>) : ActiveEdge<'Z> =
-        let mutable prev = ae.prevInAEL
-        if not state.openPathsEnabled then
-            // Fast path: when open paths are disabled, avoid calling isOpen() in the loop.
-            while isNotNull prev && not (isHotEdge prev) do
-                prev <- prev.prevInAEL
-            prev
-        else
-            while isNotNull prev && (prev.localMin.isOpen || not (isHotEdge prev)) do
-                prev <- prev.prevInAEL
-            prev
-
-    let inline isFront (ae: ActiveEdge<'Z>) : bool =
-        ae === ae.outrec.frontEdge
-
-    let inline getDx (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float) : float =
-        let dy = pt2Y - pt1Y
-        if dy <> 0.0 then
-            (pt2X - pt1X) / dy
-        elif pt2X > pt1X then
-            Double.NegativeInfinity
-        else
-            Double.PositiveInfinity
-
-    let inline setDx (ae: ActiveEdge<'Z>) : unit =
-        ae.dx <- getDx (ae.botX, ae.botY, ae.topX, ae.topY)
-
-    let inline topX (ae: ActiveEdge<'Z>, currentY: float) : float =
-        if currentY = ae.topY || ae.topX = ae.botX then
-            ae.topX
-        elif currentY = ae.botY then
-            ae.botX
-        else
-            // .NET Math.Round already uses banker's rounding (roundToEven) by default.
-            // TODO: use same rounding method in getLineIntersectPt and getClosestPtOnSegment for consistency, either here or in those functions.??
-            evalAtRound ae.botX ae.dx (currentY - ae.botY)
-
-
-    let inline isHorizontal (ae: ActiveEdge<'Z>) : bool =
-        ae.topY = ae.botY
-
-    let inline isHeadingRightHorz (ae: ActiveEdge<'Z>) : bool =
-        ae.dx = Double.NegativeInfinity
-
-    let inline isHeadingLeftHorz (ae: ActiveEdge<'Z>) : bool =
-        ae.dx = Double.PositiveInfinity
-
-    let inline isSamePolyType (ae1: ActiveEdge<'Z>, ae2: ActiveEdge<'Z>) : bool =
-        ae1.localMin.pathType = ae2.localMin.pathType
-
-    let inline nextVertex (ae: ActiveEdge<'Z>) : Vertex<'Z> =
-        if ae.windDx > 0 then
-            ae.vertexTop.next
-        else
-            ae.vertexTop.prev
-
-    let inline prevPrevVertex (ae: ActiveEdge<'Z>) : Vertex<'Z> =
-        if ae.windDx > 0 then
-            ae.vertexTop.prev.prev
-        else
-            ae.vertexTop.next.next
-
-    let inline isMaximaV (v: Vertex<'Z>) : bool =
-        v.flags &&& VertexFlags.LocalMax <> VertexFlags.None
-
-    let inline isMaximaA (ae: ActiveEdge<'Z>) : bool =
-        isMaximaV ae.vertexTop
-
-    let getMaximaPair (ae: ActiveEdge<'Z>) : ActiveEdge<'Z> =
-        let mutable ae2 = ae.nextInAEL
-        let mutable result: ActiveEdge<'Z> = null'()
-        let mutable loopOn = true
-        while loopOn && isNotNull ae2 do
-            if ae2.vertexTop === ae.vertexTop then
-                result <- ae2
-                loopOn <- false
-            else
-                ae2 <- ae2.nextInAEL
-        result
-
-    let inline ptsReallyClose (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float) : bool =
-        Math.Abs(pt1X - pt2X) < 2.0 && Math.Abs(pt1Y - pt2Y) < 2.0
-
-    let isVerySmallTriangle (op: OutPt<'Z>) : bool =
-        op.next.next === op.prev &&
-        (ptsReallyClose (op.prev.x, op.prev.y, op.next.x, op.next.y) ||
-         ptsReallyClose (op.x, op.y, op.next.x, op.next.y) ||
-         ptsReallyClose (op.x, op.y, op.prev.x, op.prev.y))
-
-    /// Signed double-area of a closed OutPt<'Z> ring.
-    let areaOutPt<'Z> (op: OutPt<'Z>) : float =
-        let mutable area = 0.0
-        let mutable op2 = op
-        let mutable loopOn = true
-        while loopOn do
-            let prev = op2.prev
-            area <- area + (prev.y + op2.y) * (prev.x - op2.x)
-            op2 <- op2.next
-            if op2 === op then
-                loopOn <- false
-        area
-
-    let inline areaTriangle (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : float =
-        (pt3Y + pt1Y) * (pt3X - pt1X) +
-        (pt1Y + pt2Y) * (pt1X - pt2X) +
-        (pt2Y + pt3Y) * (pt2X - pt3X)
-
-    /// Fast bounding-box overlap test used before calling segsIntersect.
-    let inline boundingBoxesOverlap (p1X: float, p1Y: float, p2X: float, p2Y: float, p3X: float, p3Y: float, p4X: float, p4Y: float) : bool =
-        let min1x = Math.Min(p1X, p2X)
-        let max1x = Math.Max(p1X, p2X)
-        let min1y = Math.Min(p1Y, p2Y)
-        let max1y = Math.Max(p1Y, p2Y)
-        let min2x = Math.Min(p3X, p4X)
-        let max2x = Math.Max(p3X, p4X)
-        let min2y = Math.Min(p3Y, p4Y)
-        let max2y = Math.Max(p3Y, p4Y)
-        not (max1x < min2x || max2x < min1x || max1y < min2y || max2y < min1y)
-
-    let buildPath (op: OutPt<'Z>, reverse: bool, isOpen: bool, path: Path64<'Z>) : bool =
-        if isNull' op || op === op.next || (not isOpen && op.next === op.prev) then
-            false
-        else
-            path.Clear()
-            let mutable opL = op
-            let mutable lastX = 0.0
-            let mutable lastY = 0.0
-            let mutable op2: OutPt<'Z> = null'()
-            if reverse then
-                lastX <- opL.x
-                lastY <- opL.y
-                op2 <- opL.prev
-            else
-                opL <- opL.next
-                lastX <- opL.x
-                lastY <- opL.y
-                op2 <- opL.next
-            path.Add(lastX, lastY, opL.z)
-
-            while op2 =!= opL do
-                if xyNotEqual(op2.x, op2.y, lastX, lastY) then
-                    lastX <- op2.x
-                    lastY <- op2.y
-                    path.Add(lastX, lastY, op2.z)
-                if reverse then
-                    op2 <- op2.prev
-                else
-                    op2 <- op2.next
-
-            path.PointCount <> 3 || isOpen || not (isVerySmallTriangle op2)
-
-
-    let inline containsRect (rect:OutRec<'Z>, rec_:OutRec<'Z>) : bool =
-        rec_.boundsLeft >= rect.boundsLeft && rec_.boundsRight  <= rect.boundsRight &&
-        rec_.boundsTop  >= rect.boundsTop  && rec_.boundsBottom <= rect.boundsBottom
-
-    /// actually this does set bounds
-    let getBounds (outRec:OutRec<'Z>) : unit =
-        if outRec.path.PointCount > 0 then
-            let coords = outRec.path.XYs
-            let mutable left = Double.MaxValue
-            let mutable top = Double.MaxValue
-            let mutable right = Double.MinValue
-            let mutable bottom = Double.MinValue
-            for i = 0 to outRec.path.PointCount - 1 do
-                let coord = i * 2
-                let x = coords[coord]
-                let y = coords[coord + 1]
-                if x < left   then left <- x
-                if x > right  then right <- x
-                if y < top    then top <- y
-                if y > bottom then bottom <- y
-            outRec.boundsLeft <- left
-            outRec.boundsTop <- top
-            outRec.boundsRight <- right
-            outRec.boundsBottom <- bottom
-
-    let inline isEmptyRect (outRec:OutRec<'Z>) : bool =
-        outRec.boundsBottom <= outRec.boundsTop || outRec.boundsRight <= outRec.boundsLeft
-
-
-    /// Perpendicular distance from pt to line (line1,line2) squared > 1/4 ?
-    let perpendicDistFromLineSqrdGreaterThanQuarter (ptX: float, ptY: float, line1X: float, line1Y: float, line2X: float, line2Y: float) : bool =
-        let a = ptX - line1X
-        let b = ptY - line1Y
-        let c = line2X - line1X
-        let d = line2Y - line1Y
-        if c = 0.0 && d = 0.0 then
-            false
-        else
-            let cross = a * d - c * b
-            (cross * cross) / (c*c + d*d) > 0.25
-
-    let addLocMin (vert: Vertex<'Z>, pathType: PathType, isOpen: bool, minimaList: ResizeArray<LocalMinima<'Z>>) : unit =
-        // make sure the vertex is added only once ...
-        if (vert.flags &&& VertexFlags.LocalMin) <> VertexFlags.None then
-            ()
-        else
-            vert.flags <- vert.flags ||| VertexFlags.LocalMin
-            minimaList.Add  {vertex = vert; pathType = pathType; isOpen = isOpen}
-
-
-
-    let intersectListSort: Comparison<IntersectNode<'Z>> =
-        Comparison<IntersectNode<'Z>>(fun (a:IntersectNode<'Z>) (b:IntersectNode<'Z>) ->
-            if   a.y <> b.y then
-                if a.y > b.y then -1 else 1
-            elif a.x <> b.x then
-                if a.x < b.x then -1 else 1
-            // Tiebreaker: when points are identical, sort by edge1's curX position
-            // This provides deterministic ordering matching C# IntroSort behavior
-            elif a.edge1.curX <> b.edge1.curX then
-                if a.edge1.curX < b.edge1.curX then -1 else 1
-            // Final tiebreaker: edge2's curX
-            elif a.edge2.curX <  b.edge2.curX then
-                -1
-            elif a.edge2.curX >  b.edge2.curX then
-                1
-            else
-                0
-            )
-
-
-    let horzSegSort: Comparison<HorzSegment<'Z>> =
-        Comparison<HorzSegment<'Z>>(fun (hs1: HorzSegment<'Z>) (hs2: HorzSegment<'Z>) ->
-            if isNull' hs1.rightOp then
-                if isNull' hs2.rightOp then
-                    0
-                else
-                    1
-            elif isNull' hs2.rightOp then
-                -1
-            else
-                let a = hs1.leftOp.x
-                let b = hs2.leftOp.x
-                if a < b then
-                    -1
-                elif a > b then
-                    1
-                else
-                    0
-            )
-
-
-    let inline edgesAdjacentInAEL (inode: IntersectNode<'Z>) : bool =
-        inode.edge1.nextInAEL === inode.edge2 ||
-        inode.edge1.prevInAEL === inode.edge2
-
-    // ---- OutPt<'Z> helpers ----
-
-    let duplicateOp (op: OutPt<'Z>, insertAfter: bool) : OutPt<'Z> =
-        let result = OutPt<'Z>.create (op.x, op.y, op.z, op.outrec)
-        if insertAfter then
-            result.next <- op.next
-            result.next.prev <- result
-            result.prev <- op
-            op.next <- result
-        else
-            result.prev <- op.prev
-            result.prev.next <- result
-            result.next <- op
-            op.prev <- result
-        result
-
-    let inline disposeOutPt<'Z> (op: OutPt<'Z>) : OutPt<'Z> =
-        let result =
-            if op.next === op then
-                null'()
-            else
-                op.next
-        op.prev.next <- op.next
-        op.next.prev <- op.prev
-        result
-
-    let inline isValidClosedPath (op: OutPt<'Z>) : bool =
-        isNotNull op && op.next =!= op &&
-        (op.next =!= op.prev || not (isVerySmallTriangle op))
-
-    let inline outrecIsAscending (hotEdge: ActiveEdge<'Z>) : bool =
-        hotEdge === hotEdge.outrec.frontEdge
-
-    // ---- OutRec<'Z> helpers ----
-
-    let getRealOutRec (outRec: OutRec<'Z>) : OutRec<'Z> =
-        let mutable o = outRec
-        while isNotNull o && isNull' o.pts do
-            o <- o.owner
-        o
-
-    let inline setSides (outrec: OutRec<'Z>, startEdge: ActiveEdge<'Z>, endEdge: ActiveEdge<'Z>) : unit =
-        outrec.frontEdge <- startEdge
-        outrec.backEdge <- endEdge
-
-    let inline swapFrontBackSides (outrec: OutRec<'Z>) : unit =
-        let ae2 = outrec.frontEdge
-        outrec.frontEdge <- outrec.backEdge
-        outrec.backEdge <- ae2
-        outrec.pts <- outrec.pts.next
-
-    let setOwner (outrec: OutRec<'Z>, newOwner: OutRec<'Z>) : unit =
-        let mutable owner = newOwner
-        while isNotNull owner.owner && isNull' owner.owner.pts do
-            owner.owner <- owner.owner.owner
-        // Make sure outrec isn't an ancestor of newOwner
-        let mutable tmp: OutRec<'Z> = owner
-        let mutable loopOn = true
-        while loopOn && isNotNull tmp && tmp =!= outrec do
-            tmp <- tmp.owner
-            if isNull' tmp then
-                loopOn <- false
-        if isNotNull tmp then
-            owner.owner <- outrec.owner
-        outrec.owner <- owner
-
-    let inline moveSplits (fromOr: OutRec<'Z>, toOr: OutRec<'Z>) : unit =
-        if isNull' fromOr.splits then
-            ()
-        else
-            if isNull' toOr.splits then
-                toOr.splits <- ResizeArray<int>()
-            for i=0 to fromOr.splits |> Rarr.lastIdx do
-                let idx = fromOr.splits[i]
-                if idx <> toOr.idx then
-                    toOr.splits.Add(idx)
-            fromOr.splits <- null'()
-
-    let inline fixOutRecPts (outrec: OutRec<'Z>) : unit =
-        let mutable op = outrec.pts
-        let mutable loopOn = true
-        while loopOn do
-            op.outrec <- outrec
-            op <- op.next
-            if op === outrec.pts then
-                loopOn <- false
-
-    let inline uncoupleOutRec (ae: ActiveEdge<'Z>) : unit =
-        let outrec = ae.outrec
-        if isNull' outrec then
-            ()
-        else
-            outrec.frontEdge.outrec <- null'()
-            outrec.backEdge.outrec <- null'()
-            outrec.frontEdge <- null'()
-            outrec.backEdge <- null'()
-
-
-    let inline isValidOwner (outRec: OutRec<'Z>, testOwnerIn: OutRec<'Z>) : bool =
-        let mutable testOwner = testOwnerIn
-        while isNotNull testOwner && testOwner =!= outRec do
-            testOwner <- testOwner.owner
-        isNull' testOwner
-
-
-    let inline getLastOp (hotEdge: ActiveEdge<'Z>) : OutPt<'Z> =
-        let outrec = hotEdge.outrec
-        if hotEdge === outrec.frontEdge then
-            outrec.pts
-        else
-            outrec.pts.next
-
-
-    // ---- Horizontal processing ----
-
-    let trimHorz (horzEdge: ActiveEdge<'Z>, preserveCollinearFlag: bool) : unit =
-        let mutable wasTrimmed = false
-        let mutable pt = nextVertex horzEdge
-        let mutable loopOn = true
-        while loopOn && pt.y = horzEdge.topY do
-            // always trim 180 deg. spikes (in closed paths)
-            // but otherwise break if preserveCollinear = true
-            if preserveCollinearFlag && ((pt.x < horzEdge.topX) <> (horzEdge.botX < horzEdge.topX)) then
-                loopOn <- false
-            else
-                horzEdge.vertexTop <- nextVertex horzEdge
-                horzEdge.topX <- pt.x
-                horzEdge.topY <- pt.y
-                horzEdge.topZ <- pt.z
-                wasTrimmed <- true
-                if isMaximaA horzEdge then
-                    loopOn <- false
-                else
-                    pt <- nextVertex horzEdge
-        if wasTrimmed then
-            setDx horzEdge
-
-    let getCurrYMaximaVertex (ae: ActiveEdge<'Z>) : Vertex<'Z> =
-        let mutable result = ae.vertexTop
-        if ae.windDx > 0 then
-            while result.next.y = result.y do
-                result <- result.next
-        else
-            while result.prev.y = result.y do
-                result <- result.prev
-        if not (isMaximaV result) then
-            null'()
-        else
-            result
-
-
-    let getCurrYMaximaVertexOpen (ae: ActiveEdge<'Z>) : Vertex<'Z> =
-        let mutable result = ae.vertexTop
-        if ae.windDx > 0 then
-            while result.next.y = result.y && (result.flags &&& (VertexFlags.OpenEnd ||| VertexFlags.LocalMax)) = VertexFlags.None do
-                result <- result.next
-        else
-            while result.prev.y = result.y && (result.flags &&& (VertexFlags.OpenEnd ||| VertexFlags.LocalMax)) = VertexFlags.None do
-                result <- result.prev
-        if not (isMaximaV result) then
-            null'()
-        else
-            result
-
-//#endregion
-//#region Clipper64
+// #endregion
+// #region **Clipper64**
 
 /// Merged Clipper executor for integer (Point64) paths.
 /// The TypeScript base/concrete split is collapsed here because this F# port
 /// omits the double-precision ClipperD hierarchy.
 type Clipper64<'Z>() =
+
+    // these two get filled up while adding Paths:
+    let minimaList = ResizeArray<LocalMinima<'Z>>()
+    let vertexList = ResizeArray<Vertex<'Z>>() // TODO preallocate because size is known ?
+
+
+    /// Decides whether pending scanline Ys are stored in scanlineArr or scanlineHeapSet.
+    /// Chosen per Execute in sortMinimaResetScanlines from the local-minima count (a proxy for
+    /// the number of scanlines); insertScanline flips it to false mid-sweep when the pending
+    /// count outgrows scanlineArrayThreshold.
     let mutable useScanlineArray = false
-    let scanlineHeap = ScanlineHeap()
-    let scanlineSet = HashSet<float>()
+    let scanlineArr = ScanlineArray()       // used while the pending scanline count is small (at most scanlineArrayThreshold)
+    let scanlineHeapSet = ScanlineHeapSet() // used when there are more than scanlineArrayThreshold pending scanlines
+    // Switch-over size between the two scanline containers; exposed as ScanlineArrayThreshold.
+    // Performance tuning only — any value produces identical clipping results.
+    let mutable scanlineArrayThreshold = Eng.defaultScanlineArrayThreshold
 
     let mutable cliptype = ClipType.NoClip
     let mutable fillrule = FillRule.EvenOdd
     let mutable actives: ActiveEdge<'Z> = null'()
     let mutable sel: ActiveEdge<'Z> = null'()
-    let minimaList = ResizeArray<LocalMinima<'Z>>()
     let intersectList = ResizeArray<IntersectNode<'Z>>()
-    let vertexList = ResizeArray<Vertex<'Z>>()
     let outrecList = ResizeArray<OutRec<'Z>>()
-    let scanlineArr = ResizeArray<float>()
     let horzSegList = ResizeArray<HorzSegment<'Z>>()
     let horzJoinList = ResizeArray<HorzJoin<'Z>>()
 
@@ -616,22 +74,82 @@ type Clipper64<'Z>() =
     let mutable currentBotY = 0.0
     let mutable isSortedMinimaList = false
     let mutable hasOpenPaths = false
+    // Per-instance mirror of `hasOpenPaths`, set before each execute and passed explicitly
+    // into the `Clip` open-path predicates (formerly a process-global `Clip.state`, which
+    // made concurrent use of two Clipper64 instances unsafe).
+    let mutable openPathsEnabled = false
     let mutable usingPolytree = false
-    let mutable succeeded = false
 
-    let mutable preserveCollinear = true
+    let mutable preserveColinear = true
+
+    // new tolerance properties that Clipper2 didn't have:
+    let mutable coordEqTol = 1e-5 // per-instance; exposed as CoordEqTolerance
+    let mutable mergeVertexToleranceSqrd = coordEqTol * coordEqTol // defaults to the same value as coordEqTol but can be tuned independently; exposed as MergeVertexTolerance
+
+    let mutable colinTolSqrd = 1e-6  // 1e-3 * 1e-3 //  0.25 in Clipper2 // per-instance (squared); exposed as ColinearityTolerance
+    let mutable horzAngleTol = 1e-6 // per-instance; exposed as HorizontalAngleTolerance
+    let mutable nearTopYToleranceFactor = 1e-4 // edge-height-relative part of the near-top join guard; tune via NearTopYToleranceFactor
+    let mutable nearTopYToleranceCap = 2.0    // absolute ceiling of the near-top join guard; tune via NearTopYToleranceCap
+    let mutable smallTriangleTol = 2.0 // per-instance; exposed as SmallTriangleTolerance (2 grid units in integer Clipper2)
+    let mutable splitAreaTol = 2.0     // per-instance (area units); exposed as SplitAreaTolerance
 
     // closed paths should always return a Positive orientation
     // except when ReverseSolution == true
     let mutable reverseSolution = false
     let mutable zCallback: ZCallback64<'Z> option = None
 
-
     let mutable tempX : float = 0.0
     let mutable tempY : float = 0.0
     let mutable tempZ : 'Z = Null.DEFZ()
 
     let mutable hasZValues = false
+
+    // Per-instance coordinate-equality predicates reading this instance's `coordEqTol`
+    // (the public `CoordEqTolerance`), used throughout the sweep so two `Clipper64` instances
+    // can clip with different tolerances. Coincidence tests in the `Clip`/`Geo` modules take the
+    // tolerance as an explicit argument (`Geo.isEqualWithin` / `isNotEqualWithin`); there is no global.
+    let isEqualTol (a: float) (b: float) : bool =
+        abs (a - b) <= coordEqTol
+
+    let isNotEqualTol (a: float) (b: float) : bool =
+        abs (a - b) > coordEqTol
+
+    let xyEqual (ax: float, ay: float, bx: float, by: float) : bool =
+        abs (ax - bx) <= coordEqTol &&
+        abs (ay - by) <= coordEqTol
+
+    let xyNotEqual (ax: float, ay: float, bx: float, by: float) : bool =
+        abs (ax - bx) > coordEqTol ||
+        abs (ay - by) > coordEqTol
+
+    // Per-instance horizontal-edge predicates reading this instance's `horzAngleTol`
+    // (the public `HorizontalAngleTolerance`); the `Clip` primitives take the tolerance explicitly.
+    let isHorizontal (ae: ActiveEdge<'Z>) : bool =
+        Eng.isHorizontalCoords (horzAngleTol, ae.botX, ae.botY, ae.topX, ae.topY)
+
+
+    // Per-instance open-path predicates reading this instance's `openPathsEnabled` flag;
+    // the `Clip` primitives take the flag explicitly, like the tolerance arguments.
+    let isOpen (ae: ActiveEdge<'Z>) : bool =
+        openPathsEnabled &&
+        ae.localMin.isOpen
+
+    let isOpenEnd (ae: ActiveEdge<'Z>) : bool =
+        openPathsEnabled &&
+        ae.localMin.isOpen &&
+        Eng.isOpenEndVertex ae.vertexTop
+
+    let getPrevHotEdge (ae: ActiveEdge<'Z>) : ActiveEdge<'Z> =
+        let mutable prev = ae.prevInAEL
+        if not openPathsEnabled then
+            // Fast path: when open paths are disabled, avoid calling isOpen() in the loop.
+            while isNotNull prev && not (Eng.isHotEdge prev) do
+                prev <- prev.prevInAEL
+            prev
+        else
+            while isNotNull prev && (prev.localMin.isOpen || not (Eng.isHotEdge prev)) do
+                prev <- prev.prevInAEL
+            prev
 
 
     // same as getLineIntersectPt but only called from doSplitOp
@@ -653,13 +171,8 @@ type Clipper64<'Z>() =
             tempY <- ln1b.y
             tempZ <- ln1b.z
         else
-            // This is the only place where new x and y coordinates are created
-            // CLipper2 C#: avoid using constructor (and rounding too) as they affect performance //664
-            // seems to apply for C++ only ? https://github.com/AngusJohnson/Clipper2/pull/657#issuecomment-1732206640
-            tempX <- Clip.evalAtTruncate ln1a.x t dx1
-            tempY <- Clip.evalAtTruncate ln1a.y t dy1
-            // tempX <- jsRound(ln1a.x + t * dx1) // TODO test in .NET and js!!
-            // tempY <- jsRound(ln1a.y + t * dy1)
+            tempX <- Eng.evalAt ln1a.x t dx1
+            tempY <- Eng.evalAt ln1a.y t dy1
             tempZ <- Null.DEFZ()
 
 
@@ -674,22 +187,28 @@ type Clipper64<'Z>() =
             let intersectX = opt.x
             let intersectY = opt.y
             if ae1.localMin.pathType = PathType.Subject then
-                if   Clip.xyEqual (intersectX, intersectY, ae1.botX, ae1.botY) then updatedZ <- ae1.botZ
-                elif Clip.xyEqual (intersectX, intersectY, ae1.topX, ae1.topY) then updatedZ <- ae1.topZ
-                elif Clip.xyEqual (intersectX, intersectY, ae2.botX, ae2.botY) then updatedZ <- ae2.botZ
-                elif Clip.xyEqual (intersectX, intersectY, ae2.topX, ae2.topY) then updatedZ <- ae2.topZ
+                if   xyEqual (intersectX, intersectY, ae1.botX, ae1.botY) then updatedZ <- ae1.botZ
+                elif xyEqual (intersectX, intersectY, ae1.topX, ae1.topY) then updatedZ <- ae1.topZ
+                elif xyEqual (intersectX, intersectY, ae2.botX, ae2.botY) then updatedZ <- ae2.botZ
+                elif xyEqual (intersectX, intersectY, ae2.topX, ae2.topY) then updatedZ <- ae2.topZ
                 else                                                                updatedZ <- Null.DEFZ()
                 opt.z <- zcallback( Null.opt ae1, Null.opt ae2, intersectX, intersectY, updatedZ)
             else
-                if   Clip.xyEqual (intersectX, intersectY, ae2.botX, ae2.botY) then updatedZ <- ae2.botZ
-                elif Clip.xyEqual (intersectX, intersectY, ae2.topX, ae2.topY) then updatedZ <- ae2.topZ
-                elif Clip.xyEqual (intersectX, intersectY, ae1.botX, ae1.botY) then updatedZ <- ae1.botZ
-                elif Clip.xyEqual (intersectX, intersectY, ae1.topX, ae1.topY) then updatedZ <- ae1.topZ
+                if   xyEqual (intersectX, intersectY, ae2.botX, ae2.botY) then updatedZ <- ae2.botZ
+                elif xyEqual (intersectX, intersectY, ae2.topX, ae2.topY) then updatedZ <- ae2.topZ
+                elif xyEqual (intersectX, intersectY, ae1.botX, ae1.botY) then updatedZ <- ae1.botZ
+                elif xyEqual (intersectX, intersectY, ae1.topX, ae1.topY) then updatedZ <- ae1.topZ
                 else                                                                updatedZ <- Null.DEFZ()
                 opt.z <- zcallback(Null.opt ae2, Null.opt ae1, intersectX, intersectY, updatedZ)
 
 
-    // ---- AEL management ----
+    // #endregion
+    // #region AEL management
+
+    // AEL: 'active edge list' (Vatti's AET - active edge table)
+    //     a linked list of all edges (from left to right) that are present
+    //     (or 'active') within the current scanbeam (a horizontal 'beam' that
+    //     sweeps from bottom to top over the paths in the clipping operation).
 
     let deleteFromAEL (ae: ActiveEdge<'Z>) : unit =
         let prev = ae.prevInAEL
@@ -705,99 +224,30 @@ type Clipper64<'Z>() =
                 next.prevInAEL <- prev
 
     let clearSolutionOnly () : unit =
-        while isNotNull actives do deleteFromAEL actives
-        scanlineHeap.ClearData()
-        scanlineSet.Clear()
-        scanlineArr|> Rarr.clear
-        intersectList|> Rarr.clear //disposeIntersectNodes()
-        outrecList|> Rarr.clear
-        horzSegList|> Rarr.clear
-        horzJoinList|> Rarr.clear
+        while isNotNull actives do
+            deleteFromAEL actives
+        scanlineArr.Clear()
+        scanlineHeapSet.Clear()
+        intersectList |> Rarr.clear //disposeIntersectNodes()
+        outrecList    |> Rarr.clear
+        horzSegList   |> Rarr.clear
+        horzJoinList  |> Rarr.clear
 
 
     let insertScanline (y: float) : unit =
         if useScanlineArray then
-            let mutable found = false
-            let mutable i = 0
-            while i < Rarr.len scanlineArr  && not found do
-                if scanlineArr[i] = y then
-                    found <- true
-                else
-                    i <- i + 1
-            if not found then
-                scanlineArr.Add(y)
-                if scanlineArr |> Rarr.len > 64 then
-                    // upgradeScanlineStructureFromArray() inlined:
-                    for i = 0 to scanlineArr |> Rarr.lastIdx do
-                        let y = scanlineArr[i]
-                        scanlineSet.Add(y) |> ignore
-                        scanlineHeap.Push(y)
-                    scanlineArr|> Rarr.clear
-                    useScanlineArray <- false
+            // when the pending scanline count outgrows the threshold, upgrade to the heap+set container
+            if scanlineArr.Insert y && scanlineArr.Count > scanlineArrayThreshold then
+                scanlineArr.DrainInto scanlineHeapSet
+                useScanlineArray <- false
         else
-            if not (scanlineSet.Contains(y)) then
-                scanlineSet.Add(y) |> ignore
-                scanlineHeap.Push(y)
+            scanlineHeapSet.Insert y
 
     // Returns the next scanline Y coordinate, or NaN if there are no more.
     let popScanline () : float =
-        if useScanlineArray then
-            if scanlineArr |> Rarr.len = 0 then
-                Double.NaN
-            else
-                let len = scanlineArr |> Rarr.len
-                let mutable bestIdx = 0
-                let mutable bestY = scanlineArr[0]
-                for i = 1 to len - 1 do
-                    let v = scanlineArr[i]
-                    if v > bestY then
-                        bestY <- v
-                        bestIdx <- i
-                scanlineArr[bestIdx] <- scanlineArr[len - 1]
-                scanlineArr  |> Rarr.pop
-                bestY
-        else
-            let y = scanlineHeap.Pop()
-            if not (Double.IsNaN y) then
-                scanlineSet.Remove y |> ignore
-            y
+        if useScanlineArray then scanlineArr.Pop()
+        else scanlineHeapSet.Pop()
 
-
-
-
-    let minimaListCmp : Comparison<LocalMinima<'Z>> =
-        Comparison<LocalMinima<'Z>>(fun (a:LocalMinima<'Z>) (b:LocalMinima<'Z>) ->
-            let ya = a.vertex.y
-            let yb = b.vertex.y
-            if ya > yb then
-                -1
-            elif ya < yb then
-                1
-            else
-                0
-        )
-
-    let reset () : unit =
-        let minimaList = minimaList // avoiding access via 'this' in JS
-        if not isSortedMinimaList then
-            // printfn "Sorting minima list with %d items" minimaList.Count
-            minimaList.Sort minimaListCmp
-            isSortedMinimaList <- true
-
-        scanlineHeap.ClearData()
-        scanlineSet.Clear()
-        scanlineArr|> Rarr.clear
-        // Heuristic: local minima count correlates with number of scanlines and
-        // scanline insert/pop activity. For glyph-like inputs, this is typically small.
-        useScanlineArray <- minimaList |> Rarr.len <= 16
-        for i = minimaList |> Rarr.lastIdx downto 0 do
-            insertScanline minimaList[i].vertex.y
-
-        currentBotY <- 0.0
-        currentLocMin <- 0
-        actives <- null'()
-        sel <- null'()
-        succeeded <- true
 
 
     // ---- OutRec<'Z> helpers ----
@@ -825,97 +275,22 @@ type Clipper64<'Z>() =
         result
 
 
-    // ---- Point in polygon ----
-
+    // #endregion
+    // #region Point in polygon
     let getCleanPath (op: OutPt<'Z>) : Path64<'Z> =
         let result = Geo.emptyPath64<'Z> hasZValues
         let mutable op2 = op
-        while op2.next =!= op && ((Geo.coordEq op2.x op2.next.x && Geo.coordEq op2.x op2.prev.x) || (Geo.coordEq op2.y op2.next.y && Geo.coordEq op2.y op2.prev.y)) do
+        while op2.next =!= op && ((isEqualTol op2.x op2.next.x && isEqualTol op2.x op2.prev.x) || (isEqualTol op2.y op2.next.y && isEqualTol op2.y op2.prev.y)) do
             op2 <- op2.next
         result.Add(op2.x, op2.y, op2.z)
         let mutable prevOp = op2
         op2 <- op2.next
         while op2 =!= op do
-            if (Geo.coordNeq op2.x op2.next.x || Geo.coordNeq op2.x prevOp.x) && (Geo.coordNeq op2.y op2.next.y || Geo.coordNeq op2.y prevOp.y) then
+            if (isNotEqualTol op2.x op2.next.x || isNotEqualTol op2.x prevOp.x) && (isNotEqualTol op2.y op2.next.y || isNotEqualTol op2.y prevOp.y) then
                 result.Add(op2.x, op2.y, op2.z)
                 prevOp <- op2
             op2 <- op2.next
         result
-
-    let pointInOpPolygon (ptX: float) (ptY: float) (op: OutPt<'Z>) : PointInPolygonResult =
-        if op === op.next || op.prev === op.next then
-            PointInPolygonResult.IsOutside
-        else
-            let mutable opL = op
-            let mutable op2 = opL
-            let mutable loopOn = true
-            while loopOn do
-                if Geo.coordNeq opL.y ptY then
-                    loopOn <- false
-                else
-                    opL <- opL.next
-                    if opL === op2 then
-                        loopOn <- false
-            if Geo.coordEq opL.y ptY then
-                PointInPolygonResult.IsOutside
-            else
-                let mutable isAbove = opL.y < ptY
-                let startingAbove = isAbove
-                let mutable value = 0
-                let mutable result = PointInPolygonResult.IsOutside
-                let mutable settled = false
-                let mutable op2b = opL.next
-                while not settled && op2b =!= opL do
-                    if isAbove then
-                        while op2b =!= opL && op2b.y < ptY do
-                            op2b <- op2b.next
-                    else
-                        while (op2b =!= opL) && op2b.y > ptY do
-                            op2b <- op2b.next
-                    if op2b === opL then
-                        () // break outer
-                    else
-                        if Geo.coordEq op2b.y ptY then
-                            if Geo.coordEq op2b.x ptX ||(Geo.coordEq op2b.y op2b.prev.y && ((ptX < op2b.prev.x) <> (ptX < op2b.x))) then
-                                result <- PointInPolygonResult.IsOn
-                                settled <- true
-                            else
-                                op2b <- op2b.next
-                                if op2b === opL then
-                                    () // break
-                        else
-                            if op2b.x <= ptX || op2b.prev.x <= ptX then
-                                if op2b.prev.x < ptX && op2b.x < ptX then
-                                    value <- 1 - value
-                                else
-                                    let d = Geo.crossProductSign (op2b.prev.x, op2b.prev.y, op2b.x, op2b.y, ptX, ptY)
-                                    if d = 0 then
-                                        result <- PointInPolygonResult.IsOn
-                                        settled <- true
-                                    elif (d < 0) = isAbove then
-                                        value <- 1 - value
-                            if not settled then
-                                isAbove <- not isAbove
-                                op2b <- op2b.next
-
-                if settled then
-                    result
-                elif isAbove = startingAbove then
-                    if value = 0 then
-                        PointInPolygonResult.IsOutside
-                    else
-                        PointInPolygonResult.IsInside
-                else
-                    let d = Geo.crossProductSign (op2b.prev.x, op2b.prev.y, op2b.x, op2b.y, ptX, ptY)
-                    if d = 0 then
-                        PointInPolygonResult.IsOn
-                    else
-                        if (d < 0) = isAbove then
-                            value <- 1 - value
-                        if value = 0 then
-                            PointInPolygonResult.IsOutside
-                        else
-                            PointInPolygonResult.IsInside
 
     let path1InsidePath2 (op1: OutPt<'Z>, op2: OutPt<'Z>) : bool =
         // allow rounding noise: skip if the first vertex appears outside
@@ -925,7 +300,7 @@ type Clipper64<'Z>() =
         let mutable finished = false
         let mutable loopOn = true
         while loopOn do
-            match pointInOpPolygon op.x op.y op2 with
+            match Eng.pointInOpPolygon coordEqTol colinTolSqrd op.x op.y op2 with
             | PointInPolygonResult.IsOutside ->
                 if pip = PointInPolygonResult.IsOutside then
                     result <- false
@@ -948,12 +323,13 @@ type Clipper64<'Z>() =
         if finished then
             result
         else
-            Geo.path2ContainsPath1 (getCleanPath op1) (getCleanPath op2)
+            Geo.path2ContainsPath1 coordEqTol colinTolSqrd (getCleanPath op1) (getCleanPath op2)
 
-    // ---- Horizontal segments / joins ----
+    // #endregion
+    // #region Horizontal segments / joins
 
     let setHorzSegHeadingForward (hs: HorzSegment<'Z>, opP: OutPt<'Z>, opN: OutPt<'Z>) : bool =
-        if Geo.coordEq opP.x opN.x then
+        if isEqualTol opP.x opN.x then
             false
         else
             if opP.x < opN.x then
@@ -968,7 +344,7 @@ type Clipper64<'Z>() =
 
     let updateHorzSegment (hs: HorzSegment<'Z>) : bool =
         let op = hs.leftOp
-        let outrec = Clip.getRealOutRec op.outrec
+        let outrec = Eng.getRealOutRec op.outrec
         let outrecHasEdges = isNotNull outrec.frontEdge
         let currY = op.y
         let mutable opP = op
@@ -977,14 +353,14 @@ type Clipper64<'Z>() =
         if outrecHasEdges then
             let opA = outrec.pts
             let opZ = opA.next
-            while opP =!= opZ && Geo.coordEq opP.prev.y currY do
+            while opP =!= opZ && isEqualTol opP.prev.y currY do
                 opP <- opP.prev
-            while opN =!= opA && Geo.coordEq opN.next.y currY do
+            while opN =!= opA && isEqualTol opN.next.y currY do
                 opN <- opN.next
         else
-            while opP.prev =!= opN && Geo.coordEq opP.prev.y currY do
+            while opP.prev =!= opN && isEqualTol opP.prev.y currY do
                 opP <- opP.prev
-            while opN.next =!= opP && Geo.coordEq opN.next.y currY do
+            while opN.next =!= opP && isEqualTol opN.next.y currY do
                 opN <- opN.next
 
         let result = setHorzSegHeadingForward(hs, opP, opN) && isNull' hs.leftOp.horz
@@ -996,17 +372,18 @@ type Clipper64<'Z>() =
         result
 
 
-    // ---- Edges / adding output points ----
+    // #endregion
+    // #region Edges / adding output points
 
     let addOutPt (ae: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z) : OutPt<'Z> =
         let outrec = ae.outrec
-        let toFront = Clip.isFront ae
+        let toFront = Eng.isFront ae
         let opFront = outrec.pts
         let opBack = opFront.next
 
-        if toFront && Clip.xyEqual(ptX, ptY, opFront.x, opFront.y) then
+        if toFront && xyEqual(ptX, ptY, opFront.x, opFront.y) then
             opFront
-        elif not toFront && Clip.xyEqual(ptX, ptY, opBack.x, opBack.y) then
+        elif not toFront && xyEqual(ptX, ptY, opBack.x, opBack.y) then
             opBack
         else
             let newOp = OutPt<'Z>.create (ptX, ptY, ptZ, outrec)
@@ -1048,30 +425,30 @@ type Clipper64<'Z>() =
         ae1.outrec <- outrec
         ae2.outrec <- outrec
 
-        if Clip.isOpen ae1 then
+        if isOpen ae1 then
             outrec.owner <- null'()
             outrec.isOpen <- true
             if ae1.windDx > 0 then
-                Clip.setSides(outrec, ae1, ae2)
+                Eng.setSides(outrec, ae1, ae2)
             else
-                Clip.setSides(outrec, ae2, ae1)
+                Eng.setSides(outrec, ae2, ae1)
         else
             outrec.isOpen <- false
-            let prevHotEdge = Clip.getPrevHotEdge ae1
+            let prevHotEdge = getPrevHotEdge ae1
             if isNotNull prevHotEdge then
                 if usingPolytree then
-                    Clip.setOwner(outrec, prevHotEdge.outrec)
+                    Eng.setOwner(outrec, prevHotEdge.outrec)
                 outrec.owner <- prevHotEdge.outrec
-                if Clip.outrecIsAscending prevHotEdge = isNew then
-                    Clip.setSides(outrec, ae2, ae1)
+                if Eng.outrecIsAscending prevHotEdge = isNew then
+                    Eng.setSides(outrec, ae2, ae1)
                 else
-                    Clip.setSides(outrec, ae1, ae2)
+                    Eng.setSides(outrec, ae1, ae2)
             else
                 outrec.owner <- null'()
                 if isNew then
-                    Clip.setSides(outrec, ae1, ae2)
+                    Eng.setSides(outrec, ae1, ae2)
                 else
-                    Clip.setSides(outrec, ae2, ae1)
+                    Eng.setSides(outrec, ae2, ae1)
 
         let op = OutPt<'Z>.create (ptX, ptY, ptZ, outrec)
         outrec.pts <- op
@@ -1082,7 +459,7 @@ type Clipper64<'Z>() =
         let p2Start = ae2.outrec.pts
         let p1End = p1Start.next
         let p2End = p2Start.next
-        if Clip.isFront ae1 then
+        if Eng.isFront ae1 then
             p2End.prev <- p1Start
             p1Start.next <- p2End
             p2Start.next <- p1End
@@ -1103,9 +480,9 @@ type Clipper64<'Z>() =
         ae2.outrec.frontEdge <- null'()
         ae2.outrec.backEdge <- null'()
         ae2.outrec.pts <- null'()
-        Clip.setOwner(ae2.outrec, ae1.outrec)
+        Eng.setOwner(ae2.outrec, ae1.outrec)
 
-        if Clip.isOpenEnd ae1 then
+        if isOpenEnd ae1 then
             ae2.outrec.pts <- ae1.outrec.pts
             ae1.outrec.pts <- null'()
 
@@ -1152,57 +529,59 @@ type Clipper64<'Z>() =
         if isJoined ae2 then
             split(ae2, ptX, ptY, ptZ)
 
-        let mutable cancel = false
-        if Clip.isFront ae1 = Clip.isFront ae2 then
-            if Clip.isOpenEnd ae1 then
-                Clip.swapFrontBackSides ae1.outrec
-            elif Clip.isOpenEnd ae2 then
-                Clip.swapFrontBackSides ae2.outrec
+        if Eng.isFront ae1 = Eng.isFront ae2 then
+            if isOpenEnd ae1 then
+                Eng.swapFrontBackSides ae1.outrec
+            elif isOpenEnd ae2 then
+                Eng.swapFrontBackSides ae2.outrec
             else
-                succeeded <- false
-                cancel <- true
+                // in original Clipper2, this just aborted and returnd null, leadien to .Execute returning false and no solution.
+                invalidOp "Klip: invalid state in addLocalMaxPoly: both edges are on the same side of their respective OutRecs and neither is an open end"
 
-        if cancel then
-            null'()
-        else
-            let result = addOutPt(ae1, ptX, ptY, ptZ)
-            if ae1.outrec === ae2.outrec then
-                let outrec = ae1.outrec
-                outrec.pts <- result
-                if usingPolytree then
-                    let e = Clip.getPrevHotEdge ae1
-                    if isNull' e then
-                        outrec.owner <- null'()
-                    else
-                        Clip.setOwner(outrec, e.outrec)
-                Clip.uncoupleOutRec ae1
-            elif Clip.isOpen ae1 then
-                if ae1.windDx < 0 then
-                    joinOutrecPaths(ae1, ae2)
+        let result = addOutPt(ae1, ptX, ptY, ptZ)
+        if ae1.outrec === ae2.outrec then
+            let outrec = ae1.outrec
+            outrec.pts <- result
+            if usingPolytree then
+                let e = getPrevHotEdge ae1
+                if isNull' e then
+                    outrec.owner <- null'()
                 else
-                    joinOutrecPaths(ae2, ae1)
-            elif ae1.outrec.idx < ae2.outrec.idx then
+                    Eng.setOwner(outrec, e.outrec)
+            Eng.uncoupleOutRec ae1
+        elif isOpen ae1 then
+            if ae1.windDx < 0 then
                 joinOutrecPaths(ae1, ae2)
             else
                 joinOutrecPaths(ae2, ae1)
-            result
+        elif ae1.outrec.idx < ae2.outrec.idx then
+            joinOutrecPaths(ae1, ae2)
+        else
+            joinOutrecPaths(ae2, ae1)
+        result
 
-    // ---- AEL insertion / validation ----
+    // #endregion
+    // #region AEL insertion / validation
+
+    // AEL: 'active edge list' (Vatti's AET - active edge table)
+    //     a linked list of all edges (from left to right) that are present
+    //     (or 'active') within the current scanbeam (a horizontal 'beam' that
+    //     sweeps from bottom to top over the paths in the clipping operation).
 
     let rec isValidAelOrder (resident: ActiveEdge<'Z>, newcomer: ActiveEdge<'Z>) : bool =
-        if Geo.coordNeq newcomer.curX resident.curX then
+        if isNotEqualTol newcomer.curX resident.curX then
             newcomer.curX > resident.curX
         else
-            let d = Geo.crossProductSign (resident.topX, resident.topY, newcomer.botX, newcomer.botY, newcomer.topX, newcomer.topY)
+            let d = Geo.crossProductSign colinTolSqrd (resident.topX, resident.topY, newcomer.botX, newcomer.botY, newcomer.topX, newcomer.topY)
             if d <> 0 then
                 d < 0
             else
-                if (not (Clip.isMaximaA resident)) && resident.topY > newcomer.topY then
-                    let nextResident = Clip.nextVertex resident
-                    Geo.crossProductSign (newcomer.botX, newcomer.botY, resident.topX, resident.topY, nextResident.x, nextResident.y) <= 0
-                elif (not (Clip.isMaximaA newcomer)) && newcomer.topY > resident.topY then
-                    let nextNewcomer = Clip.nextVertex newcomer
-                    Geo.crossProductSign (newcomer.botX, newcomer.botY, newcomer.topX, newcomer.topY, nextNewcomer.x, nextNewcomer.y) >= 0
+                if (not (Eng.isMaximaA resident)) && resident.topY > newcomer.topY then
+                    let nextResident = Eng.nextVertex resident
+                    Geo.crossProductSign colinTolSqrd (newcomer.botX, newcomer.botY, resident.topX, resident.topY, nextResident.x, nextResident.y) <= 0
+                elif (not (Eng.isMaximaA newcomer)) && newcomer.topY > resident.topY then
+                    let nextNewcomer = Eng.nextVertex newcomer
+                    Geo.crossProductSign colinTolSqrd (newcomer.botX, newcomer.botY, newcomer.topX, newcomer.topY, nextNewcomer.x, nextNewcomer.y) >= 0
                 else
                     let y = newcomer.botY
                     let newcomerIsLeft = newcomer.isLeftBound
@@ -1210,16 +589,16 @@ type Clipper64<'Z>() =
                         newcomer.isLeftBound
                     elif resident.isLeftBound <> newcomerIsLeft then
                         newcomerIsLeft
-                    elif Geo.isCollinear ((Clip.prevPrevVertex resident).x, (Clip.prevPrevVertex resident).y, resident.botX, resident.botY, resident.topX, resident.topY) then
+                    elif Geo.isColinear (colinTolSqrd, (Eng.prevPrevVertex resident).x, (Eng.prevPrevVertex resident).y, resident.botX, resident.botY, resident.topX, resident.topY) then
                         true
                     else
-                        let cross = Geo.crossProductSign(
-                                        (Clip.prevPrevVertex resident).x,
-                                        (Clip.prevPrevVertex resident).y,
+                        let cross = Geo.crossProductSign colinTolSqrd (
+                                        (Eng.prevPrevVertex resident).x,
+                                        (Eng.prevPrevVertex resident).y,
                                         newcomer.botX,
                                         newcomer.botY,
-                                        (Clip.prevPrevVertex newcomer).x,
-                                        (Clip.prevPrevVertex newcomer).y)
+                                        (Eng.prevPrevVertex newcomer).x,
+                                        (Eng.prevPrevVertex newcomer).y)
                         cross > 0  = newcomerIsLeft
 
     let insertLeftEdge (ae: ActiveEdge<'Z>) : unit =
@@ -1287,16 +666,16 @@ type Clipper64<'Z>() =
             while ae2 =!= ae do
                 if ae2.localMin.pathType = PathType.Clip then
                     cnt2 <- cnt2 + 1
-                elif not (Clip.isOpen ae2) then
+                elif not (isOpen ae2) then
                     cnt1 <- cnt1 + 1
                 ae2 <- ae2.nextInAEL
-            ae.windCount  <- (if Clip.isOdd cnt1 then 1 else 0)
-            ae.windCount2 <- (if Clip.isOdd cnt2 then 1 else 0)
+            ae.windCount  <- (if Eng.isOdd cnt1 then 1 else 0)
+            ae.windCount2 <- (if Eng.isOdd cnt2 then 1 else 0)
         else
             while ae2 =!= ae do
                 if ae2.localMin.pathType = PathType.Clip then
                     ae.windCount2 <- ae.windCount2 + ae2.windDx
-                elif not (Clip.isOpen ae2) then
+                elif not (isOpen ae2) then
                     ae.windCount <- ae.windCount + ae2.windDx
                 ae2 <- ae2.nextInAEL
 
@@ -1304,7 +683,7 @@ type Clipper64<'Z>() =
         let mutable ae2 = ae.prevInAEL
         let pt = ae.localMin.pathType
 
-        if not Clip.state.openPathsEnabled then
+        if not openPathsEnabled then
             while isNotNull ae2 && ae2.localMin.pathType <> pt do
                 ae2 <- ae2.prevInAEL
 
@@ -1343,7 +722,7 @@ type Clipper64<'Z>() =
                         ae.windCount2 <- ae.windCount2 + ae2.windDx
                     ae2 <- ae2.nextInAEL
         else
-            while isNotNull ae2 && (ae2.localMin.pathType <> pt || Clip.isOpen ae2) do
+            while isNotNull ae2 && (ae2.localMin.pathType <> pt || isOpen ae2) do
                 ae2 <- ae2.prevInAEL
 
             if isNull' ae2 then
@@ -1361,7 +740,7 @@ type Clipper64<'Z>() =
                         else
                             ae.windCount <- ae2.windCount + ae.windDx
                     else
-                        ae.windCount <- (if Clip.isOpen ae then 1 else ae.windDx)
+                        ae.windCount <- (if isOpen ae then 1 else ae.windDx)
                 else
                     if ae2.windDx * ae.windDx < 0 then
                         ae.windCount <- ae2.windCount
@@ -1372,12 +751,12 @@ type Clipper64<'Z>() =
 
             if fillrule = FillRule.EvenOdd then
                 while ae2 =!= ae do
-                    if ae2.localMin.pathType <> pt && not (Clip.isOpen ae2) then
+                    if ae2.localMin.pathType <> pt && not (isOpen ae2) then
                         ae.windCount2 <- (if ae.windCount2 = 0 then 1 else 0)
                     ae2 <- ae2.nextInAEL
             else
                 while ae2 =!= ae do
-                    if ae2.localMin.pathType <> pt && not (Clip.isOpen ae2) then
+                    if ae2.localMin.pathType <> pt && not (isOpen ae2) then
                         ae.windCount2 <- ae.windCount2 + ae2.windDx
                     ae2 <- ae2.nextInAEL
 
@@ -1436,27 +815,38 @@ type Clipper64<'Z>() =
 
     // ---- Check joins ----
 
+    // Near-top join guard. Adjacent-edge joins are suppressed when the candidate join
+    // point sits at (or just below, in scanline-Y terms) an edge's top vertex, because a
+    // join that close to a maximum is almost always a maximum being processed, not a real
+    // touching-edge merge. The window is edge-height-relative (`height * nearTopYToleranceFactor`)
+    // so tall edges get a proportionally larger margin, but it is capped at an absolute
+    // `nearTopYToleranceCap` so very tall edges don't get an unboundedly wide guard.
+    // Both constants are tunable via the NearTopYToleranceFactor / NearTopYToleranceCap properties.
+    let isNearOrAboveTopY (ptY: float) (edge: ActiveEdge<'Z>) : bool =
+        let topTol = min nearTopYToleranceCap (Math.Abs(edge.botY - edge.topY) * nearTopYToleranceFactor)
+        ptY < edge.topY + topTol
+
     let checkJoinLeft (ae: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z, checkCurrX: bool) : unit =
         let prev = ae.prevInAEL
         if isNull' prev
-            || not (Clip.isHotEdge ae)
-            || not (Clip.isHotEdge prev)
-            || Clip.isHorizontal ae
-            || Clip.isHorizontal prev
-            || Clip.isOpen ae
-            || Clip.isOpen prev then
+            || not (Eng.isHotEdge ae)
+            || not (Eng.isHotEdge prev)
+            || isHorizontal ae
+            || isHorizontal prev
+            || isOpen ae
+            || isOpen prev then
                 ()
-        elif (ptY < ae.topY + 2.0 || ptY < prev.topY + 2.0) && (ae.botY > ptY || prev.botY > ptY) then
+        elif (isNearOrAboveTopY ptY ae || isNearOrAboveTopY ptY prev) && (ae.botY > ptY || prev.botY > ptY) then
                 ()
         else
             let earlyExit =
                 if checkCurrX then
-                    Clip.perpendicDistFromLineSqrdGreaterThanQuarter (ptX, ptY, prev.botX, prev.botY, prev.topX, prev.topY)
+                    Eng.distFromLineSqrdGreaterThanTolerance ( mergeVertexToleranceSqrd, ptX, ptY, prev.botX, prev.botY, prev.topX, prev.topY)
                 else
-                    Geo.coordNeq ae.curX prev.curX
+                    isNotEqualTol ae.curX prev.curX
             if earlyExit then
                 ()
-            elif not (Geo.isCollinear (ae.topX, ae.topY, ptX, ptY, prev.topX, prev.topY)) then
+            elif not (Geo.isColinear (colinTolSqrd, ae.topX, ae.topY, ptX, ptY, prev.topX, prev.topY)) then
                 ()
             else
                 if ae.outrec.idx = prev.outrec.idx then
@@ -1471,24 +861,24 @@ type Clipper64<'Z>() =
     let checkJoinRight (ae: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z, checkCurrX: bool) : unit =
         let next = ae.nextInAEL
         if isNull' next
-           || not (Clip.isHotEdge ae)
-           || not (Clip.isHotEdge next)
-           || Clip.isHorizontal ae
-           || Clip.isHorizontal next
-           || Clip.isOpen ae
-           || Clip.isOpen next then
+           || not (Eng.isHotEdge ae)
+           || not (Eng.isHotEdge next)
+           || isHorizontal ae
+           || isHorizontal next
+           || isOpen ae
+           || isOpen next then
                 ()
-        elif (ptY < ae.topY + 2.0 || ptY < next.topY + 2.0) && (ae.botY > ptY || next.botY > ptY) then
+        elif (isNearOrAboveTopY ptY ae || isNearOrAboveTopY ptY next) && (ae.botY > ptY || next.botY > ptY) then
                 ()
         else
             let earlyExit =
                 if checkCurrX then
-                    Clip.perpendicDistFromLineSqrdGreaterThanQuarter (ptX, ptY, next.botX, next.botY, next.topX, next.topY)
+                    Eng.distFromLineSqrdGreaterThanTolerance ( mergeVertexToleranceSqrd, ptX, ptY, next.botX, next.botY, next.topX, next.topY)
                 else
-                    Geo.coordNeq ae.curX next.curX
+                    isNotEqualTol ae.curX next.curX
             if earlyExit then
                 ()
-            elif not (Geo.isCollinear (ae.topX, ae.topY, ptX, ptY, next.topX, next.topY)) then
+            elif not (Geo.isColinear (colinTolSqrd, ae.topX, ae.topY, ptX, ptY, next.topX, next.topY)) then
                 ()
             else
                 if ae.outrec.idx = next.outrec.idx then
@@ -1500,16 +890,17 @@ type Clipper64<'Z>() =
                 ae.joinWith <- JoinWith.Right
                 next.joinWith <- JoinWith.Left
 
-    // ---- Intersect edges ----
+    // #endregion
+    // #region Intersect edges
 
     let findEdgeWithMatchingLocMin (e: ActiveEdge<'Z>) : ActiveEdge<'Z> =
         let mutable result = e.nextInAEL
         let mutable loopOn = true
         while loopOn && isNotNull result do
-            if isNotNull result.localMin && Clip.localMinimaEqual(result.localMin, e.localMin) then
+            if Eng.localMinimaEqual(result.localMin, e.localMin) then
                 loopOn <- false
-            elif not (Clip.isHorizontal result) &&
-                 not (Clip.xyEqual(e.botX, e.botY, result.botX, result.botY)) then
+            elif not (isHorizontal result) &&
+                 not (xyEqual(e.botX, e.botY, result.botX, result.botY)) then
                 result <- null'()
             else
                 result <- result.nextInAEL
@@ -1520,11 +911,11 @@ type Clipper64<'Z>() =
             let mutable loopOn = true
             let mutable finalResult: ActiveEdge<'Z> = null'()
             while loopOn && isNotNull result do
-                if isNotNull result.localMin && Clip.localMinimaEqual(result.localMin, e.localMin) then
+                if Eng.localMinimaEqual(result.localMin, e.localMin) then
                     finalResult <- result
                     loopOn <- false
-                elif not (Clip.isHorizontal result) &&
-                     not (Clip.xyEqual(e.botX, e.botY, result.botX, result.botY)) then
+                elif not (isHorizontal result) &&
+                     not (xyEqual(e.botX, e.botY, result.botX, result.botY)) then
                     finalResult <- null'()
                     loopOn <- false
                 else
@@ -1534,193 +925,204 @@ type Clipper64<'Z>() =
             else
                 result
 
-    let intersectEdges (ae1In: ActiveEdge<'Z>, ae2In: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z) : unit =
+    /// MANAGE OPEN PATH INTERSECTIONS SEPARATELY ...
+    let intersectOpenEdges (ae1In: ActiveEdge<'Z>, ae2In: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z) : unit =
         let mutable ae1 = ae1In
         let mutable ae2 = ae2In
         let mutable resultOp: OutPt<'Z> = null'()
-        // MANAGE OPEN PATH INTERSECTIONS SEPARATELY ...
-        if hasOpenPaths && (Clip.isOpen ae1 || Clip.isOpen ae2) then
-            if Clip.isOpen ae1 && Clip.isOpen ae2 then
+        if isOpen ae1 && isOpen ae2 then
+            ()
+        else
+            // the following line avoids duplicating quite a bit of code
+            if isOpen ae2 then
+                let tmp = ae1
+                ae1 <- ae2
+                ae2 <- tmp
+            if isJoined ae2 then
+                split(ae2, ptX, ptY, ptZ) // needed for safety
+
+            let mutable cancel = false
+            if cliptype = ClipType.Union then
+                if not (Eng.isHotEdge ae2) then
+                    cancel <- true
+            elif ae2.localMin.pathType = PathType.Subject then
+                cancel <- true
+
+            if not cancel then
+                match fillrule with
+                | FillRule.Positive -> if ae2.windCount <>  1 then cancel <- true
+                | FillRule.Negative -> if ae2.windCount <> -1 then cancel <- true
+                | _ ->        if Math.Abs(ae2.windCount) <> 1 then cancel <- true
+
+            if cancel then
                 ()
             else
-                // the following line avoids duplicating quite a bit of code
-                if Clip.isOpen ae2 then
-                    let tmp = ae1
-                    ae1 <- ae2
-                    ae2 <- tmp
-                if isJoined ae2 then
-                    split(ae2, ptX, ptY, ptZ) // needed for safety
-
-                let mutable cancel = false
-                if cliptype = ClipType.Union then
-                    if not (Clip.isHotEdge ae2) then
-                        cancel <- true
-                elif ae2.localMin.pathType = PathType.Subject then
-                    cancel <- true
-
-                if not cancel then
-                    match fillrule with
-                    | FillRule.Positive -> if ae2.windCount <>  1 then cancel <- true
-                    | FillRule.Negative -> if ae2.windCount <> -1 then cancel <- true
-                    | _ ->        if Math.Abs(ae2.windCount) <> 1 then cancel <- true
-
-                if cancel then
-                    ()
-                else
-                    // toggle contribution ...
-                    if Clip.isHotEdge ae1 then
-                        resultOp <- addOutPt(ae1, ptX, ptY, ptZ)
-                        setZ(ae1, ae2, resultOp)
-                        if Clip.isFront ae1 then
-                            ae1.outrec.frontEdge <- null'()
+                // toggle contribution ...
+                if Eng.isHotEdge ae1 then
+                    resultOp <- addOutPt(ae1, ptX, ptY, ptZ)
+                    // setZ is called once for resultOp below, after all branches
+                    if Eng.isFront ae1 then
+                        ae1.outrec.frontEdge <- null'()
+                    else
+                        ae1.outrec.backEdge <- null'()
+                    ae1.outrec <- null'()
+                // horizontal edges can pass under open paths at a LocMins
+                elif isEqualTol ptX ae1.localMin.vertex.x && isEqualTol ptY ae1.localMin.vertex.y && not (Eng.isOpenEndVertex ae1.localMin.vertex) then
+                    // find the other side of the LocMin and
+                    // if it's 'hot' join up with it ...
+                    let ae3 = findEdgeWithMatchingLocMin ae1
+                    if isNotNull ae3 && Eng.isHotEdge ae3 then
+                        ae1.outrec <- ae3.outrec
+                        if ae1.windDx > 0 then
+                            Eng.setSides(ae3.outrec, ae1, ae3)
                         else
-                            ae1.outrec.backEdge <- null'()
-                        ae1.outrec <- null'()
-                    // horizontal edges can pass under open paths at a LocMins
-                    elif Geo.coordEq ptX ae1.localMin.vertex.x && Geo.coordEq ptY ae1.localMin.vertex.y && not (Clip.isOpenEndVertex ae1.localMin.vertex) then
-                        // find the other side of the LocMin and
-                        // if it's 'hot' join up with it ...
-                        let ae3 = findEdgeWithMatchingLocMin ae1
-                        if isNotNull ae3 && Clip.isHotEdge ae3 then
-                            ae1.outrec <- ae3.outrec
-                            if ae1.windDx > 0 then
-                                Clip.setSides(ae3.outrec, ae1, ae3)
-                            else
-                                Clip.setSides(ae3.outrec, ae3, ae1)
-                        else
-                            resultOp <- startOpenPath(ae1, ptX, ptY, ptZ)
+                            Eng.setSides(ae3.outrec, ae3, ae1)
                     else
                         resultOp <- startOpenPath(ae1, ptX, ptY, ptZ)
-                    if isNotNull resultOp then
-                        setZ(ae1, ae2, resultOp)
-        else
-            // MANAGING CLOSED PATHS FROM HERE ON
-
-            if isJoined ae1 then
-                split(ae1, ptX, ptY, ptZ)
-            if isJoined ae2 then
-                split(ae2, ptX, ptY, ptZ)
-
-            // UPDATE WINDING COUNTS...
-
-            let mutable oldE1WindCount = 0
-            let mutable oldE2WindCount = 0
-            if ae1.localMin.pathType = ae2.localMin.pathType then
-                if fillrule = FillRule.EvenOdd then
-                    oldE1WindCount <- ae1.windCount
-                    ae1.windCount <- ae2.windCount
-                    ae2.windCount <- oldE1WindCount
                 else
-                    if ae1.windCount + ae2.windDx = 0 then
-                        ae1.windCount <- -ae1.windCount
-                    else
-                        ae1.windCount <- ae1.windCount + ae2.windDx
-                    if ae2.windCount - ae1.windDx = 0 then
-                        ae2.windCount <- -ae2.windCount
-                    else
-                        ae2.windCount <- ae2.windCount - ae1.windDx
-            else
-                if fillrule <> FillRule.EvenOdd then
-                    ae1.windCount2 <- ae1.windCount2 + ae2.windDx
-                else
-                    ae1.windCount2 <- if ae1.windCount2 = 0 then 1 else 0
-                if fillrule <> FillRule.EvenOdd then
-                    ae2.windCount2 <- ae2.windCount2 - ae1.windDx
-                else
-                    ae2.windCount2 <- if ae2.windCount2 = 0 then 1 else 0
-
-            match fillrule with
-            | FillRule.Positive ->
-                oldE1WindCount <- ae1.windCount
-                oldE2WindCount <- ae2.windCount
-            | FillRule.Negative ->
-                oldE1WindCount <- -ae1.windCount
-                oldE2WindCount <- -ae2.windCount
-            | _ ->
-                oldE1WindCount <- Math.Abs ae1.windCount
-                oldE2WindCount <- Math.Abs ae2.windCount
-
-            let e1WindCountIs0or1 = oldE1WindCount = 0 || oldE1WindCount = 1
-            let e2WindCountIs0or1 = oldE2WindCount = 0 || oldE2WindCount = 1
-
-            if not (Clip.isHotEdge ae1) && not e1WindCountIs0or1 || not (Clip.isHotEdge ae2) && not e2WindCountIs0or1 then
-                ()
-
-            elif Clip.isHotEdge ae1 && Clip.isHotEdge ae2 then
-                // NOW PROCESS THE INTERSECTION ...
-
-                // if both edges are 'hot' ...
-                if (oldE1WindCount <> 0 && oldE1WindCount <> 1) || (oldE2WindCount <> 0 && oldE2WindCount <> 1) || (ae1.localMin.pathType <> ae2.localMin.pathType && cliptype <> ClipType.Xor) then
-                    // this 'else if' condition isn't strictly needed but
-                    // it's sensible to split polygons that only touch at
-                    // a common vertex (not at common edges).
-                    resultOp <- addLocalMaxPoly(ae1, ae2, ptX, ptY, ptZ)
-                    if isNotNull resultOp then
-                        setZ(ae1, ae2, resultOp)
-                elif Clip.isFront ae1 || ae1.outrec === ae2.outrec then
-                    resultOp <- addLocalMaxPoly(ae1, ae2, ptX, ptY, ptZ)
-                    if isNotNull resultOp then
-                        setZ(ae1, ae2, resultOp)
-                    let op2 = addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
-                    setZ(ae1, ae2, op2)
-                else
-                    // can't treat as maxima & minima
-                    resultOp <- addOutPt(ae1, ptX, ptY, ptZ)
+                    resultOp <- startOpenPath(ae1, ptX, ptY, ptZ)
+                if isNotNull resultOp then
                     setZ(ae1, ae2, resultOp)
-                    let op2 = addOutPt(ae2, ptX, ptY, ptZ)
-                    setZ(ae1, ae2, op2)
-                    swapOutrecs(ae1, ae2)
 
-            // if one or other edge is 'hot' ...
-            elif Clip.isHotEdge ae1 then
+    /// MANAGING CLOSED PATHS FROM HERE ON
+    let intersectClosedPathEdges (ae1: ActiveEdge<'Z>, ae2: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z) : unit =
+        let mutable resultOp: OutPt<'Z> = null'()
+
+        if isJoined ae1 then
+            split(ae1, ptX, ptY, ptZ)
+        if isJoined ae2 then
+            split(ae2, ptX, ptY, ptZ)
+
+        // UPDATE WINDING COUNTS...
+
+        let mutable oldE1WindCount = 0
+        let mutable oldE2WindCount = 0
+        if ae1.localMin.pathType = ae2.localMin.pathType then
+            if fillrule = FillRule.EvenOdd then
+                oldE1WindCount <- ae1.windCount
+                ae1.windCount <- ae2.windCount
+                ae2.windCount <- oldE1WindCount
+            else
+                if ae1.windCount + ae2.windDx = 0 then
+                    ae1.windCount <- -ae1.windCount
+                else
+                    ae1.windCount <- ae1.windCount + ae2.windDx
+                if ae2.windCount - ae1.windDx = 0 then
+                    ae2.windCount <- -ae2.windCount
+                else
+                    ae2.windCount <- ae2.windCount - ae1.windDx
+        else
+            if fillrule <> FillRule.EvenOdd then
+                ae1.windCount2 <- ae1.windCount2 + ae2.windDx
+            else
+                ae1.windCount2 <- if ae1.windCount2 = 0 then 1 else 0
+            if fillrule <> FillRule.EvenOdd then
+                ae2.windCount2 <- ae2.windCount2 - ae1.windDx
+            else
+                ae2.windCount2 <- if ae2.windCount2 = 0 then 1 else 0
+
+        match fillrule with
+        | FillRule.Positive ->
+            oldE1WindCount <- ae1.windCount
+            oldE2WindCount <- ae2.windCount
+        | FillRule.Negative ->
+            oldE1WindCount <- -ae1.windCount
+            oldE2WindCount <- -ae2.windCount
+        | _ ->
+            oldE1WindCount <- Math.Abs ae1.windCount
+            oldE2WindCount <- Math.Abs ae2.windCount
+
+        let e1WindCountIs0or1 = oldE1WindCount = 0 || oldE1WindCount = 1
+        let e2WindCountIs0or1 = oldE2WindCount = 0 || oldE2WindCount = 1
+
+        if not (Eng.isHotEdge ae1) && not e1WindCountIs0or1 || not (Eng.isHotEdge ae2) && not e2WindCountIs0or1 then
+            ()
+
+        elif Eng.isHotEdge ae1 && Eng.isHotEdge ae2 then
+            // NOW PROCESS THE INTERSECTION ...
+
+            // if both edges are 'hot' ...
+            if (oldE1WindCount <> 0 && oldE1WindCount <> 1) || (oldE2WindCount <> 0 && oldE2WindCount <> 1) || (ae1.localMin.pathType <> ae2.localMin.pathType && cliptype <> ClipType.Xor) then
+                // this 'else if' condition isn't strictly needed but
+                // it's sensible to split polygons that only touch at
+                // a common vertex (not at common edges).
+                resultOp <- addLocalMaxPoly(ae1, ae2, ptX, ptY, ptZ)
+                if isNotNull resultOp then
+                    setZ(ae1, ae2, resultOp)
+            elif Eng.isFront ae1 || ae1.outrec === ae2.outrec then
+                resultOp <- addLocalMaxPoly(ae1, ae2, ptX, ptY, ptZ)
+                if isNotNull resultOp then
+                    setZ(ae1, ae2, resultOp)
+                let op2 = addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
+                setZ(ae1, ae2, op2)
+            else
+                // can't treat as maxima & minima
                 resultOp <- addOutPt(ae1, ptX, ptY, ptZ)
                 setZ(ae1, ae2, resultOp)
+                let op2 = addOutPt(ae2, ptX, ptY, ptZ)
+                setZ(ae1, ae2, op2)
                 swapOutrecs(ae1, ae2)
-            elif Clip.isHotEdge ae2 then
-                resultOp <- addOutPt(ae2, ptX, ptY, ptZ)
-                setZ(ae1, ae2, resultOp)
-                swapOutrecs(ae1, ae2)
-            else
-                // neither edge is 'hot'
-                let mutable e1Wc2 = 0
-                let mutable e2Wc2 = 0
-                match fillrule with
-                | FillRule.Positive ->
-                    e1Wc2 <- ae1.windCount2
-                    e2Wc2 <- ae2.windCount2
-                | FillRule.Negative ->
-                    e1Wc2 <- -ae1.windCount2
-                    e2Wc2 <- -ae2.windCount2
-                | _ ->
-                    e1Wc2 <- Math.Abs ae1.windCount2
-                    e2Wc2 <- Math.Abs ae2.windCount2
 
-                if not (Clip.isSamePolyType(ae1, ae2)) then
-                    resultOp <- addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
-                    setZ(ae1, ae2, resultOp)
-                elif oldE1WindCount = 1 && oldE2WindCount = 1 then
-                    resultOp <- null'()
-                    let mutable cancel = false
-                    match cliptype with
-                    | ClipType.Union ->
-                        if e1Wc2 > 0 && e2Wc2 > 0 then
-                            cancel <- true
-                        else
-                            resultOp <- addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
-                    | ClipType.Difference ->
-                        if (ae1.localMin.pathType = PathType.Clip && e1Wc2 > 0 && e2Wc2 > 0) || (ae1.localMin.pathType = PathType.Subject && e1Wc2 <= 0 && e2Wc2 <= 0) then
-                            resultOp <- addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
-                    | ClipType.Xor ->
+        // if one or other edge is 'hot' ...
+        elif Eng.isHotEdge ae1 then
+            resultOp <- addOutPt(ae1, ptX, ptY, ptZ)
+            setZ(ae1, ae2, resultOp)
+            swapOutrecs(ae1, ae2)
+        elif Eng.isHotEdge ae2 then
+            resultOp <- addOutPt(ae2, ptX, ptY, ptZ)
+            setZ(ae1, ae2, resultOp)
+            swapOutrecs(ae1, ae2)
+        else
+            // neither edge is 'hot'
+            let mutable e1Wc2 = 0
+            let mutable e2Wc2 = 0
+            match fillrule with
+            | FillRule.Positive ->
+                e1Wc2 <- ae1.windCount2
+                e2Wc2 <- ae2.windCount2
+            | FillRule.Negative ->
+                e1Wc2 <- -ae1.windCount2
+                e2Wc2 <- -ae2.windCount2
+            | _ ->
+                e1Wc2 <- Math.Abs ae1.windCount2
+                e2Wc2 <- Math.Abs ae2.windCount2
+
+            if not (Eng.isSamePolyType(ae1, ae2)) then
+                resultOp <- addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
+                setZ(ae1, ae2, resultOp)
+            elif oldE1WindCount = 1 && oldE2WindCount = 1 then
+                resultOp <- null'()
+                let mutable cancel = false
+                match cliptype with
+                | ClipType.Union ->
+                    if e1Wc2 > 0 && e2Wc2 > 0 then
+                        cancel <- true
+                    else
                         resultOp <- addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
-                    | _ -> // ClipType.Intersection:
-                        if e1Wc2 <= 0 || e2Wc2 <= 0 then
-                            cancel <- true
-                        else
-                            resultOp <- addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
-                    if not cancel && isNotNull resultOp then
-                        setZ(ae1, ae2, resultOp)
+                | ClipType.Difference ->
+                    if (ae1.localMin.pathType = PathType.Clip && e1Wc2 > 0 && e2Wc2 > 0) || (ae1.localMin.pathType = PathType.Subject && e1Wc2 <= 0 && e2Wc2 <= 0) then
+                        resultOp <- addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
+                | ClipType.Xor ->
+                    resultOp <- addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
+                | _ -> // ClipType.Intersection:
+                    if e1Wc2 <= 0 || e2Wc2 <= 0 then
+                        cancel <- true
+                    else
+                        resultOp <- addLocalMinPoly(ae1, ae2, ptX, ptY, ptZ, false)
+                if not cancel && isNotNull resultOp then
+                    setZ(ae1, ae2, resultOp)
+
+    let intersectEdges (ae1: ActiveEdge<'Z>, ae2: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z) : unit =
+        if hasOpenPaths && (isOpen ae1 || isOpen ae2) then
+            intersectOpenEdges(ae1, ae2, ptX, ptY, ptZ)
+        else
+            intersectClosedPathEdges(ae1, ae2, ptX, ptY, ptZ)
+
 
     // ---- SEL helpers ----
+    // SEL: 'sorted edge list' (Vatti's ST - sorted table)
+    //     linked list used when sorting edges into their new positions at the
+    //     top of scanbeams, but also (re)used to process horizontals.
 
     let extractFromSEL (ae: ActiveEdge<'Z>) : ActiveEdge<'Z> =
         let res = ae.nextInSEL
@@ -1736,6 +1138,9 @@ type Clipper64<'Z>() =
         ae1.nextInSEL <- ae2
         ae2.prevInSEL <- ae1
 
+    /// At the bottom of a scanbeam, AEL is already correctly ordered.
+    /// But at the top of that scanbeam, edges may have crossed, so their order may need to change.
+    /// adjustCurrXAndCopyToSEL copies the AEL links into SEL links and updates every edge’s curX to where it will be at topY:
     let adjustCurrXAndCopyToSEL (topY: float) : unit =
         let mutable ae = actives
         sel <- ae
@@ -1743,24 +1148,28 @@ type Clipper64<'Z>() =
             ae.prevInSEL <- ae.prevInAEL
             ae.nextInSEL <- ae.nextInAEL
             ae.jump <- ae.nextInSEL
-            ae.curX <- Clip.topX(ae, topY)
+            ae.curX <- Eng.topX(ae, topY)
             ae <- ae.nextInAEL
 
     let addNewIntersectNode (ae1: ActiveEdge<'Z>, ae2: ActiveEdge<'Z>, topY: float) : unit =
-        let xNode = Clip.getLineIntersectPt (ae1, ae2, topY)
+        let xNode = Eng.getLineIntersectPt (ae1, ae2, topY)
 
+        // NB: the corrections below move xNode's x/y but leave xNode.z as assigned by
+        // getLineIntersectPt, so z may describe the uncorrected point. This is acceptable:
+        // setZ later re-resolves Z against the edge endpoints by coordinate, so a stale z
+        // only survives when no Z callback is set (where z is unread metadata anyway).
         if xNode.y > currentBotY || xNode.y < topY then
             let absDx1 = Math.Abs(ae1.dx)
             let absDx2 = Math.Abs(ae2.dx)
             if absDx1 > 100.0 && absDx2 > 100.0 then
                 if absDx1 > absDx2 then
-                    Clip.getClosestPtOnSegment (xNode, ae1.botX, ae1.botY, ae1.topX, ae1.topY)
+                    Eng.getClosestPtOnSegment (xNode, ae1.botX, ae1.botY, ae1.topX, ae1.topY)
                 else
-                    Clip.getClosestPtOnSegment (xNode, ae2.botX, ae2.botY, ae2.topX, ae2.topY)
+                    Eng.getClosestPtOnSegment (xNode, ae2.botX, ae2.botY, ae2.topX, ae2.topY)
             elif absDx1 > 100.0 then
-                Clip.getClosestPtOnSegment (xNode, ae1.botX, ae1.botY, ae1.topX, ae1.topY)
+                Eng.getClosestPtOnSegment (xNode, ae1.botX, ae1.botY, ae1.topX, ae1.topY)
             elif absDx2 > 100.0 then
-                Clip.getClosestPtOnSegment (xNode, ae2.botX, ae2.botY, ae2.topX, ae2.topY)
+                Eng.getClosestPtOnSegment (xNode, ae2.botX, ae2.botY, ae2.topX, ae2.topY)
             else
                 if xNode.y < topY then
                     xNode.y <- topY
@@ -1768,9 +1177,9 @@ type Clipper64<'Z>() =
                     xNode.y <- currentBotY
 
                 if absDx1 < absDx2 then
-                    xNode.x <- Clip.topX(ae1, xNode.y)
+                    xNode.x <- Eng.topX(ae1, xNode.y)
                 else
-                    xNode.x <- Clip.topX(ae2, xNode.y)
+                    xNode.x <- Eng.topX(ae2, xNode.y)
 
         // In C# this copies pt (struct semantics), but our sole caller (addNewIntersectNode)
         // always passes a freshly-allocated point that goes out of scope immediately,
@@ -1844,19 +1253,19 @@ type Clipper64<'Z>() =
 
         // First we do a quicksort so intersections proceed in a bottom up order ...
         // printfn $"sorting {intersectList.Count} intersections"
-        intersectList.Sort Clip.intersectListSort
+        intersectList.Sort Eng.intersectListSort
 
         for i = 0 to intersectList |> Rarr.lastIdx do
-            if not (Clip.edgesAdjacentInAEL(intersectList[i])) then
+            if not (Eng.edgesAdjacentInAEL(Rarr.getIdx i intersectList)) then
                 let mutable j = i + 1
-                while not (Clip.edgesAdjacentInAEL(intersectList[j])) do
+                while not (Eng.edgesAdjacentInAEL(Rarr.getIdx j intersectList)) do
                     j <- j + 1
                 // swap positions i and j
-                let tmp = intersectList[i]
-                intersectList[i] <- intersectList[j]
-                intersectList[j] <- tmp
+                let tmp = Rarr.getIdx i intersectList
+                intersectList |> Rarr.setIdx i (Rarr.getIdx j intersectList)
+                intersectList |> Rarr.setIdx j tmp
 
-            let node = intersectList[i]
+            let node = Rarr.getIdx i intersectList
             intersectEdges(node.edge1, node.edge2, node.x, node.y, node.z)
             swapPositionsInAEL(node.edge1, node.edge2)
             node.edge1.curX <- node.x
@@ -1869,43 +1278,64 @@ type Clipper64<'Z>() =
             processIntersectList()
             intersectList|> Rarr.clear //disposeIntersectNodes()
 
-
-    // ---- Horizontal processing ----
+    // #endregion
+    // #region Horizontal processing
 
     let updateEdgeIntoAEL (ae: ActiveEdge<'Z>) : unit =
         // Avoid copying points (and avoid materializing z=0) for speed.
         ae.botX <- ae.topX
         ae.botY <- ae.topY
         ae.botZ <- ae.topZ
-        ae.vertexTop <- Clip.nextVertex ae
+        ae.vertexTop <- Eng.nextVertex ae
         ae.topX <- ae.vertexTop.x
         ae.topY <- ae.vertexTop.y
         ae.topZ <- ae.vertexTop.z
         ae.curX <- ae.botX
-        Clip.setDx ae
+        Eng.setDx (horzAngleTol, ae)
 
         if isJoined ae then split(ae, ae.botX, ae.botY, ae.botZ)
 
-        if Clip.isHorizontal ae then
-            if not Clip.state.openPathsEnabled then
-                // Closed-path-only fast path.
-                Clip.trimHorz(ae, preserveCollinear)
-            elif not (Clip.isOpen ae) then
-                Clip.trimHorz(ae, preserveCollinear)
+        if isHorizontal ae then
+            if not (isOpen ae) then
+                Eng.trimHorz(horzAngleTol, ae, preserveColinear)
         else
             insertScanline ae.topY
             checkJoinLeft(ae, ae.botX, ae.botY, ae.botZ, false)
             checkJoinRight(ae, ae.botX, ae.botY, ae.botZ, true)
 
     let doHorizontal (horz: ActiveEdge<'Z>) : unit =
-        let horzIsOpen = Clip.isOpen horz
+        let horzIsOpen = isOpen horz
         let y = horz.botY
 
         let vertexMax =
             if horzIsOpen then
-                Clip.getCurrYMaximaVertexOpen horz
+                Eng.getCurrYMaximaVertexOpen horz
             else
-                Clip.getCurrYMaximaVertex horz
+                Eng.getCurrYMaximaVertex horz
+
+        // Clipper2 assumes that when a horizontal bound ends at a local maximum, the
+        // maxima-pair edge is already in the AEL: with integer coordinates both bounds
+        // reach a shared flat run at the same scanline. With unrounded coordinates the
+        // opposite bound can reach the near-flat (tolerance-horizontal) run at a
+        // slightly different exact Y, i.e. a later scanbeam, so the pair can be absent.
+        // The inherited fall-through would then walk this edge past the maximum and back
+        // *up* the opposite bound, re-inserting an already-swept scanline — an endless
+        // scanbeam ping-pong. Detect the absent pair up front: the range checks in the
+        // loop below stay active (no pass-overs hunting an edge that is not there) and,
+        // instead of advancing past the maximum, the edge is parked in the AEL at its
+        // top, where the opposite bound finds it as its own maxima pair a few beams
+        // later (mirroring doMaxima, which also leaves the edge alone on a null pair).
+        let maxPairInAEL =
+            if isNull' vertexMax then
+                false
+            else
+                let mutable ae = actives
+                let mutable found = false
+                while not found && isNotNull ae do
+                    if ae =!= horz && ae.vertexTop === vertexMax then
+                        found <- true
+                    ae <- ae.nextInAEL
+                found
 
         // Inlined from `resetHorzDirection` to avoid tuple allocation:
         let mutable isLeftToRight = false
@@ -1928,7 +1358,7 @@ type Clipper64<'Z>() =
             rightX2 <- horz.curX
 
 
-        if Clip.isHotEdge horz then
+        if Eng.isHotEdge horz then
             let op = addOutPt(horz, horz.curX, y, Null.DEFZ())
             addToHorzSegList op
 
@@ -1945,9 +1375,9 @@ type Clipper64<'Z>() =
             let mutable innerBreak = false
             while not innerBreak && isNotNull ae && not returned do
                 if ae.vertexTop === vertexMax then
-                    if Clip.isHotEdge horz && isJoined ae then
+                    if Eng.isHotEdge horz && isJoined ae then
                         split(ae, ae.topX, ae.topY, ae.topZ)
-                    if Clip.isHotEdge horz then
+                    if Eng.isHotEdge horz then
                         while horz.vertexTop =!= vertexMax do
                             addOutPt(horz, horz.topX, horz.topY, horz.topZ) |> ignore
                             updateEdgeIntoAEL horz
@@ -1960,16 +1390,16 @@ type Clipper64<'Z>() =
                     returned <- true
                 else
                     let mutable localBreak = false
-                    if (vertexMax =!= horz.vertexTop) || Clip.isOpenEnd horz then
+                    if (vertexMax =!= horz.vertexTop) || isOpenEnd horz || not maxPairInAEL then
                         if (isLeftToRight && ae.curX > rightX2) || (not isLeftToRight && ae.curX < leftX2) then
                             localBreak <- true
-                        elif Geo.coordEq ae.curX horz.topX && not (Clip.isHorizontal ae) then
-                            let nextPt = Clip.nextVertex horz
-                            if Clip.isOpen ae && not (Clip.isSamePolyType(ae, horz)) && not (Clip.isHotEdge ae) then
-                                if (isLeftToRight && Clip.topX(ae, nextPt.y) > nextPt.x) || (not isLeftToRight && Clip.topX(ae, nextPt.y) < nextPt.x) then
+                        elif isEqualTol ae.curX horz.topX && not (isHorizontal ae) then
+                            let nextPt = Eng.nextVertex horz
+                            if isOpen ae && not (Eng.isSamePolyType(ae, horz)) && not (Eng.isHotEdge ae) then
+                                if (isLeftToRight && Eng.topX(ae, nextPt.y) > nextPt.x) || (not isLeftToRight && Eng.topX(ae, nextPt.y) < nextPt.x) then
                                      localBreak <- true
                             else
-                                if (isLeftToRight && Clip.topX(ae, nextPt.y) >= nextPt.x)|| (not isLeftToRight && Clip.topX(ae, nextPt.y) <= nextPt.x) then
+                                if (isLeftToRight && Eng.topX(ae, nextPt.y) >= nextPt.x)|| (not isLeftToRight && Eng.topX(ae, nextPt.y) <= nextPt.x) then
                                     localBreak <- true
 
                     if localBreak then
@@ -1991,25 +1421,25 @@ type Clipper64<'Z>() =
                             horz.curX <- ae.curX
                             ae <- horz.prevInAEL
 
-                        if Clip.isHotEdge horz then
-                            addToHorzSegList (Clip.getLastOp horz)
+                        if Eng.isHotEdge horz then
+                            addToHorzSegList (Eng.getLastOp horz)
 
             if not returned then
-                if horzIsOpen && Clip.isOpenEnd horz then
-                    if Clip.isHotEdge horz then
+                if horzIsOpen && isOpenEnd horz then
+                    if Eng.isHotEdge horz then
                         addOutPt(horz, horz.topX, horz.topY, horz.topZ) |> ignore
-                        if Clip.isFront horz then
+                        if Eng.isFront horz then
                             horz.outrec.frontEdge <- null'()
                         else
                             horz.outrec.backEdge <- null'()
                         horz.outrec <- null'()
                     deleteFromAEL horz
                     returned <- true
-                elif (Clip.nextVertex horz).y <> horz.topY then
+                elif (Eng.nextVertex horz).y <> horz.topY then
                     outerLoop <- false
                 else
                     // still more horizontals in bound to process
-                    if Clip.isHotEdge horz then
+                    if Eng.isHotEdge horz then
                         addOutPt(horz, horz.topX, horz.topY, horz.topZ) |> ignore
                     updateEdgeIntoAEL horz
 
@@ -2031,23 +1461,63 @@ type Clipper64<'Z>() =
                         rightX2 <- horz.curX
 
         if not returned then
-            if Clip.isHotEdge horz then
-                let op = addOutPt(horz, horz.topX, horz.topY, horz.topZ)
-                addToHorzSegList op
-            updateEdgeIntoAEL horz
+            if vertexMax === horz.vertexTop && not (isOpenEnd horz) && not maxPairInAEL then
+                // The maxima pair is not in the AEL yet (see maxPairInAEL above): park
+                // this edge at its top instead of advancing past the local maximum. It
+                // stays in the AEL until the opposite bound arrives and claims it as its
+                // maxima pair; the closing OutPt is added by that addLocalMaxPoly.
+                ()
+            else
+                if Eng.isHotEdge horz then
+                    let op = addOutPt(horz, horz.topX, horz.topY, horz.topZ)
+                    addToHorzSegList op
+                updateEdgeIntoAEL horz
+                // The loop above exits on an exact next-vertex-Y mismatch, but with the
+                // tolerance-based isHorizontal the next segment can still classify as
+                // horizontal (a near-flat continuation, e.g. 37 vs 36.999999999). In that
+                // case updateEdgeIntoAEL inserted no scanline for its top, so re-queue it
+                // for horizontal processing — mirroring doTopOfScanbeam — or the edge is
+                // orphaned in the AEL with dx = ±infinity and corrupts curX at the next beam.
+                if isHorizontal horz then
+                    pushHorz horz
 
 
-    // ---- Local minima insertion ----
+    // #endregion
+    // #region Local minima insertion
+
+    /// this is the first function called in .Execute()
+    /// the minima list is build up during .AddPath() calls, but is not sorted until now.
+    /// We need to sort it before we can start processing scanlines.
+    let sortMinimaResetScanlines () : unit =
+        let minimaList = minimaList // avoiding access via 'this' in JS
+        if not isSortedMinimaList then
+            // printfn "Sorting minima list with %d items" minimaList.Count
+            minimaList.Sort Eng.minimaListCmp
+            isSortedMinimaList <- true
+
+        scanlineArr.Clear()
+        scanlineHeapSet.Clear()
+        // Heuristic: local minima count correlates with number of scanlines and
+        // scanline insert/pop activity. For glyph-like inputs, this is typically small.
+        // Should the pending count outgrow the threshold mid-sweep, insertScanline upgrades to the heap+set.
+        useScanlineArray <- Rarr.len minimaList <= scanlineArrayThreshold
+        for i = Rarr.lastIdx minimaList downto 0 do
+            insertScanline (Rarr.getIdx i minimaList).vertex.y
+
+        currentBotY <- 0.0
+        currentLocMin <- 0
+        actives <- null'()
+        sel <- null'()
 
     let insertLocalMinimaIntoAEL (botY: float) : unit =
         let minimaList = minimaList // avoiding access via 'this' in JS
 
         let inline hasLocMinAtY (y: float) : bool =
-            currentLocMin < minimaList.Count &&
-            minimaList[currentLocMin].vertex.y = y
+            currentLocMin < Rarr.len minimaList &&
+            (Rarr.getIdx currentLocMin minimaList).vertex.y = y
 
         let inline popLocalMinima () : LocalMinima<'Z> =
-            let result = minimaList[currentLocMin]
+            let result = Rarr.getIdx currentLocMin minimaList
             currentLocMin <- currentLocMin + 1
             result
 
@@ -2062,6 +1532,7 @@ type Clipper64<'Z>() =
                 leftBound <- null'()
             else
                 leftBound <- ActiveEdge.create(
+                    horzAngleTol,
                     vertex.x,      // botX
                     vertex.y,      // botY
                     vertex.z,      // botZ
@@ -2080,6 +1551,7 @@ type Clipper64<'Z>() =
                 rightBound <- null'()
             else
                 rightBound <- ActiveEdge.create(
+                    horzAngleTol,
                     vertex.x,       // botX
                     vertex.y,       // botY
                     vertex.z,       // botZ
@@ -2095,13 +1567,13 @@ type Clipper64<'Z>() =
 
 
             if isNotNull leftBound && isNotNull rightBound then
-                if Clip.isHorizontal leftBound then
-                    if Clip.isHeadingRightHorz leftBound then
+                if isHorizontal leftBound then
+                    if Eng.isHeadingRightHorz leftBound then
                         let tmp = leftBound
                         leftBound <- rightBound
                         rightBound <- tmp
-                elif Clip.isHorizontal rightBound then
-                    if Clip.isHeadingLeftHorz rightBound then
+                elif isHorizontal rightBound then
+                    if Eng.isHeadingLeftHorz rightBound then
                         let tmp = leftBound
                         leftBound <- rightBound
                         rightBound <- tmp
@@ -2117,10 +1589,10 @@ type Clipper64<'Z>() =
             leftBound.isLeftBound <- true
             insertLeftEdge leftBound
 
-            if not Clip.state.openPathsEnabled then
+            if not openPathsEnabled then
                 setWindCountForClosedPathEdge leftBound
                 contributing <- isContributingClosed leftBound
-            elif Clip.isOpen leftBound then
+            elif isOpen leftBound then
                 setWindCountForOpenPathEdge leftBound
                 contributing <- isContributingOpen leftBound
             else
@@ -2134,72 +1606,87 @@ type Clipper64<'Z>() =
 
                 if contributing then
                     addLocalMinPoly(leftBound, rightBound, leftBound.botX, leftBound.botY, leftBound.botZ, true) |> ignore
-                    if not (Clip.isHorizontal leftBound) then
+                    if not (isHorizontal leftBound) then
                         checkJoinLeft(leftBound, leftBound.botX, leftBound.botY, leftBound.botZ, false)
 
                 while isNotNull rightBound.nextInAEL && isValidAelOrder(rightBound.nextInAEL, rightBound) do
                     intersectEdges(rightBound, rightBound.nextInAEL, rightBound.botX, rightBound.botY, rightBound.botZ)
                     swapPositionsInAEL(rightBound, rightBound.nextInAEL)
 
-                if Clip.isHorizontal rightBound then
+                if isHorizontal rightBound then
                     pushHorz rightBound
                 else
                     checkJoinRight(rightBound, rightBound.botX, rightBound.botY, rightBound.botZ, false)
                     insertScanline rightBound.topY
-            elif contributing && Clip.state.openPathsEnabled then
+            elif contributing && openPathsEnabled then
                 startOpenPath(leftBound, leftBound.botX, leftBound.botY, leftBound.botZ) |> ignore
 
-            if Clip.isHorizontal leftBound then
+            if isHorizontal leftBound then
                 pushHorz leftBound
             else
                 insertScanline leftBound.topY
 
-    // ---- Horz segments -> joins ----
+    // #endregion
+    // #region  Horz segments Joins
 
     let convertHorzSegsToJoins () : unit =
         let horzSegList = horzSegList // avoiding access via 'this' in JS
         let mutable k = 0
         for i = 0 to horzSegList |> Rarr.lastIdx do
-            let hs = horzSegList[i]
+            let hs = Rarr.getIdx i horzSegList
             if updateHorzSegment hs then
                 k <- k + 1
         if k < 2 then
             ()
         else
 
-            horzSegList.Sort Clip.horzSegSort
+            horzSegList.Sort Eng.horzSegSort
 
             for i = 0 to k - 2 do
-                let hs1 = horzSegList[i]
-                for j = i + 1 to k - 1 do
-                    let hs2 = horzSegList[j]
-                    if hs2.leftOp.x >= hs1.rightOp.x || hs2.leftToRight = hs1.leftToRight || hs2.rightOp.x <= hs1.leftOp.x then
+                let hs1 = Rarr.getIdx i horzSegList
+                let mutable j = i + 1
+                let mutable scanOn = true
+                while scanOn && j <= k - 1 do
+                    let hs2 = Rarr.getIdx j horzSegList
+                    // Strict-overlap test, deliberately exact (as in Clipper2): segments whose
+                    // X-ranges merely ABUT (zero-length overlap) must NOT join — contours that
+                    // touch at a single point are valid separate outputs (e.g. the two XOR lobes
+                    // of overlapping squares), and a point-join would pinch them into a figure-8
+                    // and strand the op-walks below without their x-range stopper. A noisy shared
+                    // seam is unaffected: its true overlap is far larger than float noise, so the
+                    // strict test still sees it; near-vertical noisy seams merge via
+                    // MergeVertexTolerance in checkJoinLeft/checkJoinRight instead.
+                    if hs2.leftOp.x >= hs1.rightOp.x then
+                        // the list is sorted by leftOp.x, so no later hs2 can overlap hs1 either (break, as in Clipper2)
+                        scanOn <- false
+                    elif hs2.leftToRight = hs1.leftToRight || hs2.rightOp.x <= hs1.leftOp.x then
                         ()
                     else
                         let currY = hs1.leftOp.y
                         if hs1.leftToRight then
-                            while Geo.coordEq hs1.leftOp.next.y currY && hs1.leftOp.next.x <= hs2.leftOp.x do
+                            while isEqualTol hs1.leftOp.next.y currY && hs1.leftOp.next.x <= hs2.leftOp.x do
                                 hs1.leftOp <- hs1.leftOp.next
-                            while Geo.coordEq hs2.leftOp.prev.y currY && hs2.leftOp.prev.x <= hs1.leftOp.x do
+                            while isEqualTol hs2.leftOp.prev.y currY && hs2.leftOp.prev.x <= hs1.leftOp.x do
                                 hs2.leftOp <- hs2.leftOp.prev
                             horzJoinList.Add{
-                                        op1 = Clip.duplicateOp(hs1.leftOp, true)
-                                        op2 = Clip.duplicateOp(hs2.leftOp, false) }
+                                        op1 = Eng.duplicateOp(hs1.leftOp, true)
+                                        op2 = Eng.duplicateOp(hs2.leftOp, false) }
                         else
-                            while Geo.coordEq hs1.leftOp.prev.y currY && hs1.leftOp.prev.x <= hs2.leftOp.x do
+                            while isEqualTol hs1.leftOp.prev.y currY && hs1.leftOp.prev.x <= hs2.leftOp.x do
                                 hs1.leftOp <- hs1.leftOp.prev
-                            while Geo.coordEq hs2.leftOp.next.y currY && hs2.leftOp.next.x <= hs1.leftOp.x do
+                            while isEqualTol hs2.leftOp.next.y currY && hs2.leftOp.next.x <= hs1.leftOp.x do
                                 hs2.leftOp <- hs2.leftOp.next
                             horzJoinList.Add{
-                                        op1 = Clip.duplicateOp(hs2.leftOp, true)
-                                        op2 = Clip.duplicateOp(hs1.leftOp, false) }
+                                        op1 = Eng.duplicateOp(hs2.leftOp, true)
+                                        op2 = Eng.duplicateOp(hs1.leftOp, false) }
+                    j <- j + 1
 
     let processHorzJoins () : unit =
         let horzJoinList = horzJoinList // avoiding access via 'this' in JS
         for i = 0 to horzJoinList |> Rarr.lastIdx do
-            let hoj = horzJoinList[i]
-            let or1 = Clip.getRealOutRec hoj.op1.outrec
-            let or2 = Clip.getRealOutRec hoj.op2.outrec
+            let hoj = Rarr.getIdx i horzJoinList
+            let or1 = Eng.getRealOutRec hoj.op1.outrec
+            let or2 = Eng.getRealOutRec hoj.op2.outrec
 
             let op1b = hoj.op1.next
             let op2b = hoj.op2.prev
@@ -2211,7 +1698,7 @@ type Clipper64<'Z>() =
             if or1 === or2 then
                 let or2New = newOutRec()
                 or2New.pts <- op1b
-                Clip.fixOutRecPts or2New
+                Eng.fixOutRecPts or2New
 
                 if or1.pts.outrec === or2New then
                     or1.pts <- hoj.op1
@@ -2222,8 +1709,8 @@ type Clipper64<'Z>() =
                         let tmp = or2New.pts
                         or2New.pts <- or1.pts
                         or1.pts <- tmp
-                        Clip.fixOutRecPts or1
-                        Clip.fixOutRecPts or2New
+                        Eng.fixOutRecPts or1
+                        Eng.fixOutRecPts or2New
                         or2New.owner <- or1
                     elif path1InsidePath2(or2New.pts, or1.pts) then
                         or2New.owner <- or1
@@ -2238,8 +1725,8 @@ type Clipper64<'Z>() =
             else
                 or2.pts <- null'()
                 if usingPolytree then
-                    Clip.setOwner(or2, or1)
-                    Clip.moveSplits(or2, or1)
+                    Eng.setOwner(or2, or1)
+                    Eng.moveSplits(or2, or1)
                 else
                     or2.owner <- or1
 
@@ -2249,14 +1736,14 @@ type Clipper64<'Z>() =
         let prevE = ae.prevInAEL
         let mutable nextE = ae.nextInAEL
 
-        if Clip.isOpenEnd ae then
-            if Clip.isHotEdge ae then
+        if isOpenEnd ae then
+            if Eng.isHotEdge ae then
                 addOutPt(ae, ae.topX, ae.topY, ae.topZ) |> ignore
-            if Clip.isHorizontal ae then
+            if isHorizontal ae then
                 nextE
             else
-                if Clip.isHotEdge ae then
-                    if Clip.isFront ae then
+                if Eng.isHotEdge ae then
+                    if Eng.isFront ae then
                         ae.outrec.frontEdge <- null'()
                     else
                         ae.outrec.backEdge <- null'()
@@ -2264,7 +1751,7 @@ type Clipper64<'Z>() =
                 deleteFromAEL ae
                 nextE
         else
-            let maxPair = Clip.getMaximaPair ae
+            let maxPair = Eng.getMaximaPair ae
             if isNull' maxPair then
                 nextE
             else
@@ -2280,8 +1767,8 @@ type Clipper64<'Z>() =
                     swapPositionsInAEL(ae, nextE)
                     nextE <- ae.nextInAEL
 
-                if Clip.isOpen ae then
-                    if Clip.isHotEdge ae then
+                if isOpen ae then
+                    if Eng.isHotEdge ae then
                         addLocalMaxPoly(ae, maxPair, ae.topX, ae.topY, ae.topZ) |> ignore
                     deleteFromAEL maxPair
                     deleteFromAEL ae
@@ -2290,7 +1777,7 @@ type Clipper64<'Z>() =
                     else
                         actives
                 else
-                    if Clip.isHotEdge ae then
+                    if Eng.isHotEdge ae then
                         addLocalMaxPoly(ae, maxPair, ae.topX, ae.topY, ae.topZ) |> ignore
                     deleteFromAEL ae
                     deleteFromAEL maxPair
@@ -2305,17 +1792,17 @@ type Clipper64<'Z>() =
         while isNotNull ae do
             if ae.topY = y then
                 ae.curX <- ae.topX
-                if Clip.isMaximaA ae then
+                if Eng.isMaximaA ae then
                     ae <- doMaxima ae
                 else
-                    if Clip.isHotEdge ae then
+                    if Eng.isHotEdge ae then
                         addOutPt(ae, ae.topX, ae.topY, ae.topZ) |> ignore
                     updateEdgeIntoAEL ae
-                    if Clip.isHorizontal ae then
+                    if isHorizontal ae then
                         pushHorz ae
                     ae <- ae.nextInAEL
             else
-                ae.curX <- Clip.topX(ae, y)
+                ae.curX <- Eng.topX(ae, y)
                 ae <- ae.nextInAEL
 
     // ---- Main execute loop ----
@@ -2324,17 +1811,17 @@ type Clipper64<'Z>() =
         if ct = ClipType.NoClip then
             ()
         else
-            Clip.state.openPathsEnabled <- hasOpenPaths
+            openPathsEnabled <- hasOpenPaths
             fillrule <- fr
             cliptype <- ct
-            reset()
+            sortMinimaResetScanlines()
 
             let mutable y = popScanline()
             if Double.IsNaN y then
                 ()
             else
                 let mutable running = true
-                while running && succeeded do
+                while running do
                     insertLocalMinimaIntoAEL y
                     let mutable ae = popHorz()
                     while isNotNull ae do
@@ -2357,10 +1844,10 @@ type Clipper64<'Z>() =
                             doHorizontal ae
                             ae <- popHorz()
 
-                if succeeded then
-                    processHorzJoins()
+                processHorzJoins()
 
-    // ---- Solution post-processing ----
+    // #endregion
+    // #region  Solution post-processing
 
     let doSplitOp (outrec: OutRec<'Z>, splitOp: OutPt<'Z>) : unit =
         // splitOp.prev <=> splitOp &&
@@ -2383,26 +1870,25 @@ type Clipper64<'Z>() =
         //     tempZ <- zcallback(outrec.backEdge, outrec.frontEdge , tempX, tempY, tempZ)
         // | None -> ()
 
-        let doubleArea1 = Clip.areaOutPt<'Z> prevOp
+        let doubleArea1 = Eng.areaOutPt<'Z> prevOp
         let absDoubleArea1 = Math.Abs(doubleArea1)
 
-
-        // TODO: the 4.0 threshold is somewhat arbitrary and doesn't match C#,
-        // compare with ref source
-
-
-        if absDoubleArea1 < 4.0 then
+        // areaOutPt/areaTriangle return DOUBLE areas, so `2.0 * splitAreaTol` is an area
+        // of splitAreaTol, and `splitAreaTol` below is an area of splitAreaTol/2.
+        // (Clipper2 C# uses double-area literals 2 and 1 here; this port keeps its
+        // historical 4.0/2.0 defaults via splitAreaTol = 2.0.)
+        if absDoubleArea1 < 2.0 * splitAreaTol then
             outrec.pts <- null'()
         else
             let tempX = tempX
             let tempY = tempY
             let tempZ = tempZ
-            let doubleArea2 = Clip.areaTriangle (tempX, tempY, splitOp.x, splitOp.y, splitOp.next.x, splitOp.next.y)
+            let doubleArea2 = Eng.areaTriangle (tempX, tempY, splitOp.x, splitOp.y, splitOp.next.x, splitOp.next.y)
             let absDoubleArea2 = Math.Abs(doubleArea2)
 
             // de-link splitOp and splitOp.next from the path
             // while inserting the intersection point
-            if Clip.xyEqual(tempX, tempY, prevOp.x, prevOp.y) || Clip.xyEqual(tempX, tempY, nextNextOp.x, nextNextOp.y) then
+            if xyEqual(tempX, tempY, prevOp.x, prevOp.y) || xyEqual(tempX, tempY, nextNextOp.x, nextNextOp.y) then
                 nextNextOp.prev <- prevOp
                 prevOp.next <- nextNextOp
             else
@@ -2419,7 +1905,7 @@ type Clipper64<'Z>() =
             // So the only way for these areas to have the same sign is if
             // the split triangle is larger than the path containing prevOp or
             // if there's more than one self=intersection.
-            if not (absDoubleArea2 > 2.0) || (not (absDoubleArea2 > absDoubleArea1) && ((doubleArea2 > 0.0) <> (doubleArea1 > 0.0))) then
+            if not (absDoubleArea2 > splitAreaTol) || (not (absDoubleArea2 > absDoubleArea1) && ((doubleArea2 > 0.0) <> (doubleArea1 > 0.0))) then
                 ()
             else
                 let newOutRec = newOutRec()
@@ -2456,8 +1942,8 @@ type Clipper64<'Z>() =
             while loopOn do
                 if (isNotNull op2.next
                     && isNotNull op2.next.next
-                    && Clip.boundingBoxesOverlap (op2.prev.x, op2.prev.y, op2.x, op2.y, op2.next.x, op2.next.y, op2.next.next.x, op2.next.next.y)
-                    && Geo.segsIntersectNotInclusive (op2.prev.x, op2.prev.y, op2.x, op2.y, op2.next.x, op2.next.y, op2.next.next.x, op2.next.next.y) ) then
+                    && Eng.boundingBoxesOverlap (op2.prev.x, op2.prev.y, op2.x, op2.y, op2.next.x, op2.next.y, op2.next.next.x, op2.next.next.y)
+                    && Geo.segsIntersectNotInclusive (colinTolSqrd, op2.prev.x, op2.prev.y, op2.x, op2.y, op2.next.x, op2.next.y, op2.next.next.x, op2.next.next.y) ) then
                             if op2 === outrec.pts || op2.next === outrec.pts then
                                 outrec.pts <- outrec.pts.prev
                             doSplitOp(outrec, op2)
@@ -2471,11 +1957,11 @@ type Clipper64<'Z>() =
                     op2 <- op2.next
                     if op2 === outrec.pts then
                         loopOn <- false
-    let cleanCollinear (outrecIn: OutRec<'Z>) : unit =
-        let outrec = Clip.getRealOutRec outrecIn
+    let cleanColinear (outrecIn: OutRec<'Z>) : unit =
+        let outrec = Eng.getRealOutRec outrecIn
         if isNull' outrec || outrec.isOpen then
             ()
-        elif not (Clip.isValidClosedPath outrec.pts) then
+        elif not (Eng.isValidClosedPath (smallTriangleTol, outrec.pts)) then
             outrec.pts <- null'()
         else
             let mutable startOp = outrec.pts
@@ -2483,17 +1969,25 @@ type Clipper64<'Z>() =
             let mutable loopOn = true
             let mutable invalidated = false
             while loopOn && not invalidated do
+                // A vertex coincident (within coordEqTol) with a neighbour is redundant: the
+                // edge between them is degenerate, so drop it independently of the colinearity
+                // angle test. In integer-grid Clipper2 such points are exactly equal and the
+                // cross product is exactly zero, but in unrounded mode a sub-tolerance deviation
+                // (e.g. a shared vertex landing at 50 vs 50.00000000000001) makes the near-zero
+                // edge fail the scale-relative colinearity test, leaving a coincident pair (and
+                // the U-turn spike it props up) in the output. Otherwise fall back to the
+                // colinear-spike / preserveColinear removal.
                 if (isNotNull op
-                    && Geo.isCollinear (op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y)
-                    && (Clip.xyEqual(op.x, op.y, op.prev.x, op.prev.y)
-                        || Clip.xyEqual(op.x, op.y, op.next.x, op.next.y)
-                        || not preserveCollinear
-                        || Geo.dotProductSign (op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y) < 0
+                    && (xyEqual(op.x, op.y, op.prev.x, op.prev.y)
+                        || xyEqual(op.x, op.y, op.next.x, op.next.y)
+                        || (Geo.isColinear (colinTolSqrd, op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y)
+                            && (not preserveColinear
+                                || Geo.dotProductSign (op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y) < 0))
                         ) ) then
                                 if op === outrec.pts then
                                     outrec.pts <- op.prev
-                                op <- Clip.disposeOutPt<'Z> op
-                                if not (Clip.isValidClosedPath op) then
+                                op <- Eng.disposeOutPt<'Z> op
+                                if not (Eng.isValidClosedPath (smallTriangleTol, op)) then
                                     outrec.pts <- null'()
                                     invalidated <- true
                                 else
@@ -2508,19 +2002,17 @@ type Clipper64<'Z>() =
                 fixSelfIntersects outrec
 
 
-
-
     let checkBounds (outrec: OutRec<'Z>) : bool =
         if isNull' outrec.pts then
             false
-        elif not (Clip.isEmptyRect outrec) then
+        elif not (Eng.isEmptyRect outrec) then
             true
         else
-            cleanCollinear outrec
-            if isNull' outrec.pts || not (Clip.buildPath(outrec.pts, reverseSolution, false, outrec.path)) then
+            cleanColinear outrec
+            if isNull' outrec.pts || not (Eng.buildPath(outrec.pts, reverseSolution, false, outrec.path, coordEqTol, smallTriangleTol)) then
                 false
             else
-                Clip.getBounds(outrec)
+                Eng.getBounds(outrec)
                 true
 
 
@@ -2528,12 +2020,12 @@ type Clipper64<'Z>() =
         let mutable result = false
         let mutable i = 0
         while (not result) && i < Rarr.len splits do
-            let mutable split = outrecList[splits[i]]
+            let mutable split = Rarr.getIdx (Rarr.getIdx i splits) outrecList
             if isNull' split.pts && isNotNull split.splits &&
                checkSplitOwner(outrec, split.splits) then
                 result <- true
             else
-                split <- Clip.getRealOutRec split
+                split <- Eng.getRealOutRec split
                 if isNull' split ||
                    split === outrec ||
                    split.recursiveSplit === outrec then
@@ -2544,52 +2036,52 @@ type Clipper64<'Z>() =
                     if isNotNull split.splits && checkSplitOwner(outrec, split.splits) then
                         result <- true
                     elif not (checkBounds split) ||
-                         not (Clip.containsRect(split, outrec)) ||
+                         not (Eng.containsRect(split, outrec)) ||
                          not (path1InsidePath2(outrec.pts, split.pts)) then
                         ()
                     else
-                        if not (Clip.isValidOwner(outrec, split)) then
+                        if not (Eng.isValidOwner(outrec, split)) then
                             split.owner <- outrec.owner
                         outrec.owner <- split
                         result <- true
             i <- i + 1
         result
 
-    let buildPaths (solutionClosed: Paths64<'Z>, solutionOpen: Paths64<'Z>) : bool =
+    let buildPaths (solutionClosed: Paths64<'Z>, solutionOpen: Paths64<'Z>) : unit =
         let outrecList = outrecList // avoiding access via 'this' in JS
         solutionClosed|> Rarr.clear
         if isNotNull solutionOpen then
             solutionOpen|> Rarr.clear
 
         // outrecList.length is not static here because
-        // CleanCollinear can indirectly add additional OutRec<'Z>
+        // CleanColinear can indirectly add additional OutRec<'Z>
         let mutable i = 0
         while i < Rarr.len outrecList do
-            let outrec = outrecList[i]
+            let outrec = Rarr.getIdx i outrecList
             i <- i + 1
             if isNotNull outrec.pts then
                 let path = Geo.emptyPath64<'Z> hasZValues
                 if outrec.isOpen then
-                    if Clip.buildPath(outrec.pts, reverseSolution, true, path) then
+                    if Eng.buildPath(outrec.pts, reverseSolution, true, path, coordEqTol, smallTriangleTol) then
                         if isNotNull solutionOpen then
                             solutionOpen.Add(path)
                 else
-                    cleanCollinear outrec
+                    cleanColinear outrec
                     // closed paths should always return a Positive orientation
                     // except when ReverseSolution == true
-                    if Clip.buildPath(outrec.pts, reverseSolution, false, path) then
+                    if Eng.buildPath(outrec.pts, reverseSolution, false, path, coordEqTol, smallTriangleTol) then
                         solutionClosed.Add(path)
-        true
+
 
     let rec recursiveCheckOwners (outrec: OutRec<'Z>, polypath: PolyPath64<'Z>) : unit =
-        if isNotNull outrec.polypath || Clip.isEmptyRect outrec then
+        if isNotNull outrec.polypath || Eng.isEmptyRect outrec then
             ()
         else
             let mutable breakLoop = false
             while (not breakLoop) && isNotNull outrec.owner do
                 if isNotNull outrec.owner.splits && checkSplitOwner(outrec, outrec.owner.splits) then
                     breakLoop <- true
-                elif isNotNull outrec.owner.pts && checkBounds outrec.owner && Clip.containsRect(outrec.owner, outrec) && path1InsidePath2(outrec.pts, outrec.owner.pts) then
+                elif isNotNull outrec.owner.pts && checkBounds outrec.owner && Eng.containsRect(outrec.owner, outrec) && path1InsidePath2(outrec.pts, outrec.owner.pts) then
                     breakLoop <- true
                 else
                     outrec.owner <- outrec.owner.owner
@@ -2609,51 +2101,64 @@ type Clipper64<'Z>() =
 
         // outrecList.length is not static here because
         // checkBounds below can indirectly add additional
-        // OutRec<'Z> (via FixOutRecPts & CleanCollinear)
+        // OutRec<'Z> (via FixOutRecPts & CleanColinear)
         let mutable i = 0
         while i < Rarr.len outrecList do
-            let outrec = outrecList[i]
+            let outrec = Rarr.getIdx i outrecList
             i <- i + 1
             if isNotNull outrec.pts then
                 if outrec.isOpen then
                     let openPath = Geo.emptyPath64<'Z> hasZValues
-                    if Clip.buildPath(outrec.pts, reverseSolution, true, openPath) then
+                    if Eng.buildPath(outrec.pts, reverseSolution, true, openPath, coordEqTol, smallTriangleTol) then
                         if isNotNull solutionOpen then
                             solutionOpen.Add(openPath)
                 else
                     if checkBounds outrec then
                         recursiveCheckOwners(outrec, polytree)
+
+
+
     let addPathsToVertexList (paths: Paths64<'Z>, pathType: PathType, isOpen: bool) : unit =
         for i = 0 to paths |> Rarr.lastIdx do
-            let path = paths[i]
-
+            let path = Rarr.getIdx i paths
+            if path.IsEmpty then
+                // Guard before reading xys[0] below: on .NET an empty path would throw an
+                // unhelpful index error, and under Fable xys[0] is `undefined`, silently
+                // poisoning the whole clip with NaN vertices.
+                raise (ArgumentException $"Clipper64.AddPaths: the path at index {i} is empty (0 points).")
             if path.HasZs then
                 hasZValues <- true
-
-            let mutable v0: Vertex<'Z> = null'()
-            let mutable prevV: Vertex<'Z> = null'()
-            let coords = path.XYs
+            let xys = path.XYs
             let zso = path.Zs
+            let mutable prevV: Vertex<'Z> = null'()
 
-            for j = 0 to path.PointCount - 1 do
-                let coord = j * 2
-                let x = coords[coord]
-                let y = coords[coord + 1]
-                let z = match zso with | None -> null'() | Some zs -> zs[j]
-                if isNull' v0 then
-                    v0 <- { x = x; y = y; z = z; next = null'(); prev = null'(); flags = VertexFlags.None }
-                    vertexList.Add(v0)
-                    prevV <- v0
-                elif Clip.xyNotEqual(prevV.x, prevV.y, x, y) then  // skip duplicates when building vertex list
+            // do v0, the first vertex, outside the loop to initialize prevV
+            let x = Rarr.getIdx 0 xys
+            let y = Rarr.getIdx 1 xys
+            let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx 0 zs
+            let v0 : Vertex<'Z> = { x = x; y = y; z = z; next = null'(); prev = null'(); flags = VertexFlags.None }
+            vertexList.Add(v0)
+            prevV <- v0
+
+            // do all others
+            let len = Rarr.len xys
+            let mutable j = 2
+            while j < len do
+                let x = Rarr.getIdx j xys
+                let y = Rarr.getIdx (j + 1) xys
+                let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx (j / 2) zs
+                if xyNotEqual(prevV.x, prevV.y, x, y) then  // skip duplicates when building vertex list
                     let currV = { x = x; y = y; z = z; next = null'(); prev = prevV; flags = VertexFlags.None }
                     vertexList.Add currV
                     prevV.next <- currV
                     prevV <- currV
+                j <- j + 2
+
 
             if isNull' prevV || isNull' prevV.prev then
                 () // continue
             else
-                if not isOpen && Clip.xyEqual(prevV.x, prevV.y, v0.x, v0.y) then
+                if not isOpen && xyEqual(prevV.x, prevV.y, v0.x, v0.y) then
                     prevV <- prevV.prev
                 prevV.next <- v0
                 v0.prev <- prevV
@@ -2670,7 +2175,7 @@ type Clipper64<'Z>() =
                         goingUp <- currV.y <= v0.y
                         if goingUp then
                             v0.flags <- VertexFlags.OpenStart
-                            Clip.addLocMin(v0, pathType, true, minimaList)
+                            Eng.addToLocalMinimaList(v0, pathType, true, minimaList)
                         else
                             v0.flags <- VertexFlags.OpenStart ||| VertexFlags.LocalMax
                     else
@@ -2693,7 +2198,7 @@ type Clipper64<'Z>() =
                                 goingUp <- false
                             elif currV.y < prevV.y && (not goingUp) then
                                 goingUp <- true
-                                Clip.addLocMin(prevV, pathType, isOpen, minimaList)
+                                Eng.addToLocalMinimaList(prevV, pathType, isOpen, minimaList)
                             prevV <- currV
                             currV <- currV.next
 
@@ -2702,31 +2207,264 @@ type Clipper64<'Z>() =
                             if goingUp then
                                 prevV.flags <- prevV.flags ||| VertexFlags.LocalMax
                             else
-                                Clip.addLocMin(prevV, pathType, isOpen, minimaList)
+                                Eng.addToLocalMinimaList(prevV, pathType, isOpen, minimaList)
                         elif goingUp <> goingUp0 then
                             if goingUp0 then
-                                Clip.addLocMin(prevV, pathType, false, minimaList)
+                                Eng.addToLocalMinimaList(prevV, pathType, false, minimaList)
                             else
                                 prevV.flags <- prevV.flags ||| VertexFlags.LocalMax
 
+    // #endregion
+    // #region Public interface
 
-    //#endregion
-    //#region Public interface
 
-    /// The Clipper class's PreserveCollinear property only is only relevant when clipping closed paths.
-    /// Paths will sometimes contain consecutive collinear segments,
+    // let logStats() =
+    //     printfn $"Clipper64: vertices={vertexList.Count}, minima={minimaList.Count}"
+    //     printfn $"Clipper64: scanlineHeapSet={scanlineHeapSet.Count}, scanlineArr={scanlineArr.Count}"
+    //     printfn $"Clipper64: intersects={intersectList.Count}, outrecs={outrecList.Count}"
+    //     printfn $"Clipper64: horzsegs={horzSegList.Count}, horzjoins={horzJoinList.Count}"
+
+
+
+    member _.HasOpenPaths
+        with get() : bool = hasOpenPaths
+
+    /// The Clipper class's PreserveColinear property only is only relevant when clipping closed paths.
+    /// Paths will sometimes contain consecutive colinear segments,
     /// where the shared vertex can be removed without altering path shape.
     /// Removing these vertices simplifies path definitions and is generally (but not always) preferred in clipping solutions.
-    /// Nevertheless, where consecutive collinear segments create 180 degree 'spikes', these will always be removed from closed solutions.
-    member _.PreserveCollinear
-        // TODO find out if are collinear vertices are really always removed in open paths. ?? update dox string accordingly
-        with get() : bool = preserveCollinear
-        and set(v: bool) : unit = preserveCollinear <- v
+    /// Nevertheless, where consecutive colinear segments create 180 degree 'spikes', these will always be removed from closed solutions.
+    member _.PreserveColinear
+        // TODO find out if are colinear vertices are really always removed in open paths. ?? update dox string accordingly
+        with get() : bool = preserveColinear
+        and set(v: bool) : unit = preserveColinear <- v
+
+    /// <summary>
+    /// Size at which the engine switches its pending-scanline container from a small unsorted
+    /// array (linear scan per insert/pop) to a max-heap plus hash-set (O(log n) operations).
+    /// </summary>
+    /// <remarks>
+    /// Performance tuning only — it never changes clipping results. The array container is
+    /// chosen at the start of each Execute when the local-minima count is at most this
+    /// threshold, and is upgraded to the heap mid-sweep if the number of pending scanlines
+    /// outgrows the threshold. Set 0 to always use the heap+set, or a very large value to
+    /// always use the array. Default 64, settable process-wide for new instances via
+    /// <c>Klipper.setDefaultScanlineArrayThreshold</c>. Per-instance setting.
+    /// </remarks>
+    member _.ScanlineArrayThreshold
+        with get() : int = scanlineArrayThreshold
+        and set(v: int) : unit =
+            if v >= 0 then
+                scanlineArrayThreshold <- v
+            else
+                invalidArg "ScanlineArrayThreshold" $"Scanline array threshold must be 0 or more. Got {v}."
+
+    /// <summary>
+    /// Maximum <b>perpendicular</b> distance from a candidate join point to a neighbouring
+    /// edge line for the two edges to be joined in the adjacent-edge join checks.
+    /// </summary>
+    /// <remarks>
+    /// Absolute distance, in coordinate units (the property is the square root of the
+    /// internally stored squared tolerance); does not auto-scale.
+    /// Raise this when touching contours fail to merge into a single contour. It is the main
+    /// knob for <b>near-vertical / sloped</b> touching seams: those merge only via the
+    /// adjacent-edge join, whereas near-horizontal seams have a separate join pass
+    /// (<c>convertHorzSegsToJoins</c>) and so tolerate larger noise without tuning. A shared
+    /// seam whose two sides are off by a gap <c>g</c> needs roughly <c>MergeVertexTolerance &gt; g</c>
+    /// (e.g. a 1e-4 X deviation needs ~2e-4); the default 1e-5 only covers genuine float noise.
+    /// A join requires this perpendicular gate <b>and</b> the angular
+    /// <see cref="ColinearityTolerance"/> gate to pass, and is additionally suppressed by the
+    /// near-top guard (<see cref="NearTopYToleranceFactor"/> / <see cref="NearTopYToleranceCap"/>);
+    /// a wide value here does nothing on its own if those other gates reject the join.
+    /// Measures a perpendicular-to-line distance, which is a different quantity from
+    /// <see cref="CoordEqTolerance"/>'s point coincidence, so the two are independent.
+    /// Default 1e-5 (the <see cref="CoordEqTolerance"/> default). Valid range 0.0 .. 1e9. Per-instance setting.
+    /// </remarks>
+    member _.MergeVertexTolerance
+        with get() : float =
+            mergeVertexToleranceSqrd |> Math.Sqrt
+        and set(v: float) : unit =
+            if v >= 0.0 && v <= 1e9 then
+                mergeVertexToleranceSqrd <- v * v
+            else
+                invalidArg "MergeVertexTolerance" $"Merge vertex tolerance must be between 0.0 and 1e9. Got {v}."
 
 
-    /// Clipping operations will always return Positive oriented solutions
+    /// <summary>
+    /// Coordinate-equality tolerance: two coordinates are treated as "the same point" when
+    /// <c>abs (a - b) &lt;= CoordEqTolerance</c>.
+    /// </summary>
+    /// <remarks>
+    /// Absolute distance, in coordinate units, applied per ordinate; does not auto-scale.
+    /// Because intersection coordinates are computed as raw floats (not snapped to an integer
+    /// grid), this absorbs floating-point rounding noise without fusing genuinely-distinct
+    /// points. It backs the in-sweep point-equality and same-X / same-Y tests.
+    /// Conceptually related to, but mechanically distinct from, <see cref="ColinearityTolerance"/>:
+    /// this fuses near-duplicate <i>vertices</i> (a distance), whereas ColinearityTolerance
+    /// flattens near-straight <i>runs</i> (an angle). It is also the fine, in-sweep counterpart
+    /// to the coarse pre-pass <c>Klip.Snap.xAndY</c>, and is independent of
+    /// <see cref="MergeVertexTolerance"/> (point coincidence vs perpendicular-to-line distance).
+    /// Raise it to tolerate noisier near-duplicate input points.
+    /// Default 1e-5. Valid range 0.0 .. 1e9. Per-instance setting: there is no module-global
+    /// coordinate-equality tolerance — every coincidence test (including the <c>Geo.pointInPolygon</c>
+    /// containment checks used by the sweep) takes this value as an explicit argument.
+    /// </remarks>
+    member _.CoordEqTolerance
+        with get() : float = coordEqTol
+        and set(v: float) : unit =
+            if v >= 0.0 && v <= 1e9 then
+                coordEqTol <- v
+            else
+                invalidArg "CoordEqTolerance" $"Coord equality tolerance must be between 0.0 and 1e9. Got {v}."
+
+    /// <summary>
+    /// Edge-height-relative factor of the near-top join guard. The guard suppresses an
+    /// adjacent-edge join when the candidate join point sits at, or just below (in scanline-Y
+    /// terms), an edge's top vertex — because a join that close to a maximum is almost always
+    /// a maximum being processed, not a genuine touching-edge merge.
+    /// </summary>
+    /// <remarks>
+    /// The guard window for an edge is <c>min(NearTopYToleranceCap, edgeHeight * NearTopYToleranceFactor)</c>.
+    /// This factor scales the window with edge height (dimensionless, a fraction of edge height),
+    /// so taller edges get a proportionally larger margin; <see cref="NearTopYToleranceCap"/>
+    /// then caps it in absolute terms. Lowering it toward 0 effectively disables the guard
+    /// (joins are allowed right up to the top vertex); raising it makes the engine more
+    /// conservative about joining near edge tops.
+    /// Default 1e-4. Valid range 0.0 .. 1.0. Per-instance setting.
+    /// </remarks>
+    member _.NearTopYToleranceFactor
+        with get() : float = nearTopYToleranceFactor
+        and set(v: float) : unit =
+            if v >= 0.0 && v <= 1.0 then
+                nearTopYToleranceFactor <- v
+            else
+                invalidArg "NearTopYToleranceFactor" $"Near-top Y tolerance factor must be between 0.0 and 1.0. Got {v}."
+
+    /// <summary>
+    /// Absolute ceiling, in coordinate units, of the near-top join guard window (see
+    /// <see cref="NearTopYToleranceFactor"/> for what the guard does).
+    /// </summary>
+    /// <remarks>
+    /// The guard window for an edge is <c>min(NearTopYToleranceCap, edgeHeight * NearTopYToleranceFactor)</c>,
+    /// so this caps how wide the edge-height-relative window may grow for very tall edges.
+    /// Being an absolute value, it does not auto-scale: at very large coordinate magnitudes a
+    /// fixed cap is relatively tiny, while at sub-unit magnitudes the height-relative term
+    /// dominates — a reason to normalize coordinate magnitude before clipping.
+    /// Setting it to 0 disables the absolute window entirely (the guard then only triggers
+    /// strictly above the top vertex).
+    /// Default 2.0. Valid range 0.0 .. 1e9. Per-instance setting.
+    /// </remarks>
+    member _.NearTopYToleranceCap
+        with get() : float = nearTopYToleranceCap
+        and set(v: float) : unit =
+            if v >= 0.0 && v <= 1e9 then
+                nearTopYToleranceCap <- v
+            else
+                invalidArg "NearTopYToleranceCap" $"Near-top Y tolerance cap must be between 0.0 and 1e9. Got {v}."
+
+    /// <summary>
+    /// Window (absolute, in coordinate units) below which a 3-point solution ring is culled as a
+    /// sliver triangle: a triangle is dropped when any two of its vertices are closer than this
+    /// in both X and Y.
+    /// </summary>
+    /// <remarks>
+    /// Inherited from integer-grid Clipper2, where the literal <c>2.0</c> meant two grid units.
+    /// Being an absolute distance it does not auto-scale: like <see cref="NearTopYToleranceCap"/>
+    /// it should be scaled to the coordinate magnitude of the input (a triangle spanning 1.9
+    /// units is noise at coordinate magnitude ~1e6, but real geometry at sub-unit magnitudes).
+    /// Set it to 0 to keep all triangles.
+    /// Default 2.0. Valid range 0.0 .. 1e9. Per-instance setting: carried as an explicit
+    /// argument into <c>buildPath</c> / <c>isValidClosedPath</c>, with no module-global.
+    /// </remarks>
+    member _.SmallTriangleTolerance
+        with get() : float = smallTriangleTol
+        and set(v: float) : unit =
+            if v >= 0.0 && v <= 1e9 then
+                smallTriangleTol <- v
+            else
+                invalidArg "SmallTriangleTolerance" $"Small triangle tolerance must be between 0.0 and 1e9. Got {v}."
+
+    /// <summary>
+    /// Area window (absolute, in squared coordinate units) used when a self-intersecting ring is
+    /// split in two: the ring is discarded entirely when its area falls below this value, and the
+    /// split-off triangle is kept only when its area exceeds half this value.
+    /// </summary>
+    /// <remarks>
+    /// Inherited from integer-grid Clipper2 (which discards below area 1 and keeps splits above
+    /// area 0.5; this port has historically used twice that). Being an absolute <i>area</i> it
+    /// scales with the <b>square</b> of the coordinate magnitude, so when adjusting tolerances to
+    /// input scale use ~M² rather than ~M (where M is the max absolute coordinate).
+    /// Set it to 0 to keep all rings and splits regardless of area.
+    /// Default 2.0. Valid range 0.0 .. 1e18. Per-instance setting.
+    /// </remarks>
+    member _.SplitAreaTolerance
+        with get() : float = splitAreaTol
+        and set(v: float) : unit =
+            if v >= 0.0 && v <= 1e18 then
+                splitAreaTol <- v
+            else
+                invalidArg "SplitAreaTolerance" $"Split area tolerance must be between 0.0 and 1e18. Got {v}."
+
+
+    /// <summary>
+    /// Dimensionless tolerance for deciding whether a cross product is effectively zero, i.e.
+    /// whether three points are colinear.
+    /// </summary>
+    /// <remarks>
+    /// Three points are treated as colinear when <c>cross(U,V)^2 &lt;= tolerance^2 * |U|^2 * |V|^2</c>,
+    /// which is equivalent to <c>abs(sin(theta)) &lt;= tolerance</c>, where theta is the turn
+    /// angle between the two edge vectors — so this is effectively an <i>angle</i> tolerance and,
+    /// unlike the distance tolerances, it is scale-independent.
+    /// Smaller values require straighter edges; larger values merge or clean more
+    /// nearly-colinear vertices but may hide very narrow angles. This also lets colinear
+    /// cleanup detect and close nearly 180-degree U-turn spike vertices.
+    /// It affects cross-product signs, point-on-edge tests, active-edge ordering tie breaks,
+    /// the angular gate of adjacent-edge joins, and colinear cleanup. Conceptually the angular
+    /// partner of <see cref="CoordEqTolerance"/> (which is a distance).
+    /// Raise it to flatten near-straight edges that otherwise leave stray micro-vertices.
+    /// Default 1e-3 (0.5 in Clipper2). Valid range 1e-16 .. 1e6. Per-instance setting:
+    /// carried as an explicit argument into the colinearity primitives, with no module-global.
+    /// </remarks>
+    member _.ColinearityTolerance
+        with get() : float =
+            Math.Sqrt colinTolSqrd // 0.25 as squared literal in Clipper2
+        and set(v: float) : unit =
+            if v >= 1e-16 && v <= 1e6 then
+                colinTolSqrd <- v * v
+            else
+                invalidArg "ColinearityTolerance" $"Colinearity tolerance must be between 1e-16 and 1e6. Got {v}."
+
+    /// <summary>
+    /// Dimensionless tolerance for deciding whether an edge is horizontal: an edge counts as
+    /// horizontal when <c>abs(Δy) &lt;= HorizontalAngleTolerance * abs(Δx)</c>.
+    /// </summary>
+    /// <remarks>
+    /// This is effectively a slope (sin θ-like) angle from the horizontal, so — like
+    /// <see cref="ColinearityTolerance"/> — it is scale-independent. Unrounded inputs can leave a
+    /// shared near-horizontal edge a hair off exact (e.g. a top edge at 37 vs 37.00000000000001);
+    /// the former exact <c>topY = botY</c> test then landed its two ends on distinct scanlines and
+    /// could seal an open notch into a phantom hole. It backs both <c>getDx</c> (the ±infinity
+    /// horizontal-edge encoding) and the in-sweep <c>isHorizontal</c> test, which stay coupled.
+    /// Set it to 0 to restore the original exact behaviour; raise it to treat shallower edges as
+    /// horizontal (too large will flatten genuine slopes and corrupt the sweep).
+    /// Default 1e-6. Valid range 0.0 .. 1e-3. Per-instance setting, like
+    /// <see cref="CoordEqTolerance"/> and <see cref="ColinearityTolerance"/>: carried as an
+    /// explicit argument into the horizontal-edge primitives, with no module-global.
+    /// </remarks>
+    member _.HorizontalAngleTolerance
+        with get() : float = horzAngleTol
+        and set(v: float) : unit =
+            if v >= 0.0 && v <= 1e-3 then
+                horzAngleTol <- v
+            else
+                invalidArg "HorizontalAngleTolerance" $"Horizontal angle tolerance must be between 0.0 and 1e-3. Got {v}."
+
+
+
+    /// Clipping operations will always return Positive oriented solutions as outer path.
+    /// Inner hole contours will always have a Negative orientation
     /// (unless the Clipper object's ReverseSolution property has been enabled).
-    /// This means that outer polygon contours will wind anti-clockwise (in Cartesian coordinates),
+    /// This means that outer polygon contours will wind anti-clockwise when Y is positive upwards,
     /// and inner hole contours will wind clockwise. And because paths in clipping solutions never intersect,
     /// both EvenOdd and NonZero filling would correctly apply to the solution,
     /// though it's usual to apply the same FillRule that was applied to the subject and clip paths during clipping.
@@ -2757,15 +2495,23 @@ type Clipper64<'Z>() =
         currentLocMin <- 0
         isSortedMinimaList <- false
         hasOpenPaths <- false
+        hasZValues <- false
 
 
     member _.AddPaths(paths: Paths64<'Z>, pathType: PathType, [<OPT; DEF(false)>] isOpen: bool) : unit =
+        if isNull' paths then
+            invalidArg "paths" "Paths cannot be null."
+        if isOpen && pathType = PathType.Clip then
+            invalidArg "isOpen" "Clip paths cannot be open. Use AddOpenSubject for open subject paths."
         if isOpen then
             hasOpenPaths <- true
         isSortedMinimaList <- false
         addPathsToVertexList(paths, pathType, isOpen)
 
+
     member this.AddPath(path: Path64<'Z>, pathType: PathType, [<OPT; DEF(false)>] isOpen: bool) : unit =
+        if isNull' path then
+            invalidArg "path" "Path cannot be null."
         let tmp = Paths64<'Z>()
         tmp.Add(path)
         this.AddPaths(tmp, pathType, isOpen)
@@ -2773,51 +2519,57 @@ type Clipper64<'Z>() =
     /// Assumes the paths are closed and adds them as subjects.
     /// Just calls this.AddPaths with PathType.Subject and isOpen = false
     member this.AddSubject(paths: Paths64<'Z>) : unit =
-        this.AddPaths(paths, PathType.Subject, false)
+        this.AddPaths(paths, PathType.Subject, isOpen = false)
 
     /// Assumes the paths are open and adds them as subjects.
     /// Just calls this.AddPaths with PathType.Subject and isOpen = true
     member this.AddOpenSubject(paths: Paths64<'Z>) : unit =
-        this.AddPaths(paths, PathType.Subject, true)
+        this.AddPaths(paths, PathType.Subject, isOpen = true)
 
     /// Assumes the paths are closed and adds them as clips.
-    /// Clipping path maust be closed, but subject paths can be open or closed.
+    /// Clip paths must be closed, but subject paths can be open or closed.
     /// Just calls this.AddPaths with PathType.Clip and isOpen = false
     member this.AddClip(paths: Paths64<'Z>) : unit =
-        this.AddPaths(paths, PathType.Clip, false)
+        this.AddPaths(paths, PathType.Clip, isOpen = false)
 
-    /// Fills the provided solutionClosed Paths64 with the closed paths in the solution, and optionally solutionOpen with the open paths if solutionOpen paths are provided and not null.
-    /// Returns a boolean indicating success or failure.
-    member _.Execute(clipType: ClipType, fillRule: FillRule, solutionClosed: Paths64<'Z>, ?solutionOpen: Paths64<'Z>) : bool = // using DefaultArg(null) would fail in Fable TS build
-        let solutionOpen = defaultArg solutionOpen null
-        solutionClosed|> Rarr.clear
-        if isNotNull solutionOpen then
-            solutionOpen|> Rarr.clear
-        try
-            try
-                executeInternal(clipType, fillRule)
-                buildPaths(solutionClosed, solutionOpen) |> ignore
-            with _ ->
-                succeeded <- false
-        finally
-            clearSolutionOnly()
-        succeeded
 
-    /// Fills the provided PolyTree64 with the result of the operation and optionally openPaths with the open paths if openPaths paths are provided and not null.
-    /// Returns a boolean indicating success or failure.
-    member _.Execute(clipType: ClipType, fillRule: FillRule, polytree: PolyTree64<'Z>, ?openPaths: Paths64<'Z>) : bool = // using DefaultArg(null) would fail in Fable TS build
-        let openPaths = defaultArg openPaths null
-        polytree.ClearContent()
-        if isNotNull openPaths then
-            openPaths|> Rarr.clear
+    /// Executes the clipping operation.
+    /// All Subject and Clip paths must have been added before calling Execute.
+    /// You can call Execute as many times as you like with different ClipType and/or FillRule values.
+    /// The input paths persist between calls.
+    /// Returns a tuple of closed and open paths, in that order.
+    /// solutionOpen may be null if no open paths were added.
+    /// Raises an InvalidOperationException if the clipping operation fails (e.g. on malformed input).
+    /// The result outer path contours will have a positive orientation
+    /// (unless the Clipper object's ReverseSolution property has been enabled).
+    member _.Execute(clipType: ClipType, fillRule: FillRule) : Paths64<'Z> * Paths64<'Z> =
+        usingPolytree <- false
+        executeInternal(clipType, fillRule)
+        let solutionClosed = Paths64<'Z>()
+        let solutionOpen = if hasOpenPaths then Paths64<'Z>() else null
+        buildPaths(solutionClosed, solutionOpen)
+        // logStats()
+        clearSolutionOnly()
+        solutionClosed, solutionOpen
+
+
+    /// Executes the clipping operation .
+    /// A PolyTree64 will never contain open paths since open paths can't contain paths.
+    /// When clipping open paths, these will always be represented in solutions via a separate Paths64 structure.
+    /// Returns a PolyTree64 representing the solution, where each node contains a path and references to its parent and child nodes.
+    /// All Subject and Clip paths must have been added before calling Execute.
+    /// You can call Execute as many times as you like with different ClipType and/or FillRule values.
+    /// The input paths persist between calls.
+    /// Returns a tuple of the PolyTree64 and the open paths.
+    /// The open-path result is null when no open subjects were added.
+    /// Raises an InvalidOperationException if the clipping operation fails (e.g. on malformed input).
+    /// The result outer path contours will have a positive orientation
+    /// (unless the Clipper object's ReverseSolution property has been enabled).
+    member _.ExecutePolyTree(clipType: ClipType, fillRule: FillRule) : PolyTree64<'Z> * Paths64<'Z> = // using DefaultArg(null) would fail in Fable TS build
         usingPolytree <- true
-        try
-            try
-                executeInternal(clipType, fillRule)
-                buildTree(polytree, openPaths)
-            with _ ->
-                succeeded <- false
-        finally
-            clearSolutionOnly()
-        succeeded
-
+        executeInternal(clipType, fillRule)
+        let treeClosed = PolyTree64<'Z>()
+        let treeOpen = if hasOpenPaths then Paths64<'Z>() else null
+        buildTree(treeClosed, treeOpen)
+        clearSolutionOnly()
+        treeClosed, treeOpen

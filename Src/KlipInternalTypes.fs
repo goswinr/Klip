@@ -2,7 +2,7 @@
 * Author    :  Angus Johnson                                                   *
 * Date      :  21 February 2026                                                *
 * Website   :  https://www.angusj.com                                          *
-* Copyright :  Angus Johnson 2010-2025                                         *
+* Copyright :  Angus Johnson 2010-2026                                         *
 * Purpose   :  This is the main polygon clipping module                        *
 * Thanks    :  Special thanks to Thong Nguyen, Guus Kuiper, Phil Stopford,     *
 *           :  and Daniel Gosnell for their invaluable assistance with C#.     *
@@ -15,10 +15,11 @@
 namespace Klip
 
 open System
+open System.Collections.Generic
 open Null
 
 
-//#region Klip public types
+// #region Klip public types
 
 /// An enumeration that defines the type of clipping operation to be performed.
 /// With the exception of <c>Difference</c>, these operations are commutative, so swapping
@@ -54,10 +55,10 @@ type FillRule =
     /// A point is "inside" if the winding number is less than 0.
     | Negative = 3
 
-//#endregion
-//#region KlipInternal types
+// #endregion
+// #region KlipInternal types
 
-module KlipInternal =
+module KlipInternalTypes =
 
     /// Pre-clipping flags attached to each Vertex; combined as bit flags.
     [<Flags>]
@@ -89,7 +90,8 @@ module KlipInternal =
     /// A pre-clipping vertex in a doubly-linked ring; carries flags that classify
     /// it relative to local minima / maxima.
     /// Careful: may be NULL when used as a property in other records.
-    type [<NoComparison;NoEquality>] Vertex<'Z> = {
+    [<NoComparison; NoEquality>]
+    type Vertex<'Z> = {
         x: float
         y: float
         z: 'Z
@@ -99,7 +101,8 @@ module KlipInternal =
     }
 
     /// A local minimum of a path, used to seed the active edge list.
-    type [<Struct; NoComparison;NoEquality>] LocalMinima<'Z> = // a struct in C# passed by reference
+    [<Struct; NoComparison; NoEquality>]
+    type LocalMinima<'Z> = // a struct in C# passed by reference
         {
         vertex: Vertex<'Z>
         pathType: PathType
@@ -113,7 +116,8 @@ module KlipInternal =
 
     /// Output vertex in a circular linked list representing a clipping solution path.
     /// Careful: may be NULL when used as a property in other records.
-    type [<NoComparison;NoEquality>] OutPt<'Z> =
+     [<NoComparison; NoEquality>]
+    type OutPt<'Z> =
         {
         x: float
         y: float
@@ -139,7 +143,7 @@ module KlipInternal =
 
     /// A horizontal edge segment accumulated during Vatti processing.
     /// Careful: may be NULL when used as a property in other records.
-    and [<NoComparison;NoEquality>] HorzSegment<'Z> =
+    and [<NoComparison; NoEquality>] HorzSegment<'Z> =
         {
         mutable leftOp: OutPt<'Z> | null
         mutable rightOp: OutPt<'Z> | null
@@ -149,7 +153,7 @@ module KlipInternal =
 
     /// A pair of OutPts that participate in a horizontal join.
     /// Careful: may be NULL when used as a property in other records.
-    and [<NoComparison;NoEquality>] HorzJoin<'Z>  =
+    and [<NoComparison; NoEquality>] HorzJoin<'Z>  =
         {
         op1: OutPt<'Z>
         op2: OutPt<'Z>
@@ -158,7 +162,7 @@ module KlipInternal =
 
     /// Output record: the clipping solution for a single polygon contour.
     /// Careful: may be NULL when used as a property in other records.
-    and [<NoComparison;NoEquality>] OutRec<'Z> =
+    and [<NoComparison; NoEquality>] OutRec<'Z> =
         {
         mutable idx: int
         mutable owner: OutRec<'Z> | null
@@ -179,7 +183,7 @@ module KlipInternal =
     /// Active Edge Table node — one for each edge currently intersecting the scanbeam.
     /// Important: UP and DOWN here are premised on Y-axis positive down
     /// displays, which is the orientation used in Clipper's development.
-    and [<NoComparison;NoEquality>] ActiveEdge<'Z> =
+    and [<NoComparison; NoEquality>] ActiveEdge<'Z> =
         {
         mutable botX: float
         mutable botY: float
@@ -187,7 +191,7 @@ module KlipInternal =
         mutable topX: float
         mutable topY: float
         mutable topZ: 'Z
-        mutable curX: float // current (updated at every new scanline) - keep as number but ensure integer precision
+        mutable curX: float // current X (updated at every new scanline)
         mutable dx: float
         mutable windDx: int // 1 or -1 depending on winding direction
         mutable windCount: int
@@ -212,6 +216,7 @@ module KlipInternal =
         localMin: LocalMinima<'Z>
         }
         static member create (
+            horzAngleTol: float,
             botX:      float,
             botY:      float,
             botZ:      'Z,
@@ -224,11 +229,17 @@ module KlipInternal =
             outrec:    OutRec<'Z>,
             localMin:  LocalMinima<'Z>) =
                 let dx =
-                    // getDx inlined here
+                    // getDx inlined here. Keep this coupled to Engine2's
+                    // isHorizontal predicate so near-horizontal edges get the
+                    // same +/-infinity encoding immediately after creation.
                     let dy = topY - botY
-                    if dy <> 0.0 then          (topX - botX) / dy
-                    elif topX > botX then      Double.NegativeInfinity
-                    else                       Double.PositiveInfinity
+                    let dx = topX - botX
+                    if abs dy > horzAngleTol * abs dx then
+                        dx / dy
+                    elif topX > botX then
+                        Double.NegativeInfinity
+                    else
+                        Double.PositiveInfinity
                 {
                 botX = botX
                 botY = botY
@@ -253,19 +264,29 @@ module KlipInternal =
                 localMin = localMin
                 }
 
-        /// True if this edge belongs to the subject polygon set; false if it belongs to the clip polygon set or if LocalMinima is null.
+        /// True if this edge belongs to the subject polygon set; false if it belongs to the clip polygon set.
         member a.IsSubject : bool =
-            isNotNull a.localMin && a.localMin.pathType = PathType.Subject
+            a.localMin.pathType = PathType.Subject
 
-        /// True if this edge belongs to the clip polygon set; false if it belongs to the subject polygon set or if LocalMinima is null.
+        /// True if this edge belongs to the clip polygon set; false if it belongs to the subject polygon set.
         member a.IsClip : bool =
-            isNotNull a.localMin && a.localMin.pathType = PathType.Clip
+            a.localMin.pathType = PathType.Clip
 
 
-    //#endregion
-    //#region PolyPath64
+    // #endregion
+    // #region PolyPath64
 
     /// A node in a `PolyTree64`. Each `PolyPath64` represents a single contour.
+    /// PolyTree64 is a read-only data structure that receives solutions from clipping operations.
+    /// It's an alternative to the Paths64 data structure which also receives solutions.
+    /// However the principal advantage of PolyTree64 over Paths64 is that it also represents
+    /// the parent-child relationships of the polygons in the solution
+    /// (where a parent's Polygon will contain all its children Polygons).
+    ///
+    /// Since the PolyTree64's structure is much more complex than Paths64's structure,
+    /// it'll take quite a bit longer to populate, so clipping operations will be roughly 10% slower.
+    /// Because of this, it's better to use the Paths64 structure in clipping operations
+    /// unless the parent-child relationships of the returned polygons are important.
     and [<AllowNullLiteral>] PolyPath64<'Z> (parent: PolyPath64<'Z> ) =
         // PolyPathBase and PolyPath64 are merged, because PolyPathD does not exist in this F# port.
 
@@ -275,16 +296,17 @@ module KlipInternal =
 
         let mutable polygon: Path64<'Z> = null'()
 
+        /// Creates a new `PolyPath64` without a parent. So a root.
         new() =
             PolyPath64(null)
 
         /// Gets or sets the `Path64` vertices of this contour.
         member _.Polygon
-            with get() = polygon
-            and set(v) = polygon <- v
+            with get() : Path64<'Z> = polygon
+            and set(v  : Path64<'Z> ) = polygon <- v
 
         /// Gets the parent node.
-        member _.Parent =
+        member _.Parent : PolyPath64<'Z> =
             _parent
 
         /// The nesting level of this contour.
@@ -324,7 +346,7 @@ module KlipInternal =
         member _.Child(index: int) : PolyPath64<'Z> =
             if index < 0 || index >= children.Count then
                 raise (Exception($"PolyPath64.Child index {index} out of range for children count {children.Count}"))
-            children[index]
+            Rarr.getIdx index children
 
         /// Calculates the total area of this contour and all its children.
         member _.Area() : float =
@@ -334,7 +356,7 @@ module KlipInternal =
                 else
                     polygon.SignedArea
             for i = 0 to children |> Rarr.lastIdx do
-                result <- result + children[i].Area()
+                result <- result + (Rarr.getIdx i children).Area()
             result
 
         member internal _.ToStringInternal(idx: int, level: int) : string =
@@ -356,7 +378,7 @@ module KlipInternal =
             else
                 let plural = if children.Count = 1 then "" else "s"
                 let sb = Text.StringBuilder()
-                sb.AppendLine $"Polytree with {children.Count} polygon{plural}." |> ignore
+                sb.AppendLine $"PolyTree with {children.Count} polygon{plural}." |> ignore
                 for i = 0 to children |> Rarr.lastIdx do
                     if children[i].Count > 0 then
                         sb.Append(children[i].ToStringInternal(i, 1)) |> ignore
@@ -369,6 +391,10 @@ module KlipInternal =
     /// Unlike `Paths64`, which is a flat list of contours, `PolyTree64` represents the parent-child
     /// relationship between contours (outer contours and their holes), making it essential when the
     /// structure of the resulting polygons matters.
+    ///
+    /// PolyTree64 will never contain open paths.
+    /// since open paths can't contain paths.
+    /// When clipping open paths, these will always be represented in solutions via a separate Paths64 structure.
     [<AllowNullLiteral>]
     type PolyTree64<'Z>() =
         inherit PolyPath64<'Z>(null)
@@ -379,7 +405,7 @@ module KlipInternal =
     // Y coordinates to the smallest while keeping edges adjacent.
     /// Intersection node: two edges that cross at a given point.
     // [<Struct>]
-    [<NoComparison;NoEquality>]
+    [<NoComparison; NoEquality>]
     type IntersectNode<'Z> = { // a struct in C# passed by reference
         mutable x: float
         mutable y: float
@@ -389,35 +415,44 @@ module KlipInternal =
     }
 
 
-    //#endregion
-    //#region ScanlineHeap
+    // #endregion
+    // #region Scanline containers
 
-    // C# keeps scanlines in a sorted list; here we use a heap to avoid O(n) splices.
-    /// Max-heap of scanline Y coordinates. Mirrors the TS ScanlineHeap.
-    type ScanlineHeap() =
+    // C# keeps scanlines in a sorted list; here, depending on the scanline count, the engine
+    // uses one of two containers (see Clipper64.ScanlineArrayThreshold for the switch-over):
+    // ScanlineArray for small counts, ScanlineHeapSet for large ones. Both store unique
+    // Y coordinates and pop them in descending order; they differ only in performance.
+
+    /// Max-heap of unique scanline Y coordinates, deduplicated with a HashSet
+    /// (a native `Set` under Fable). O(log n) insert and pop — used for large scanline
+    /// counts; for small counts the linear `ScanlineArray` is faster.
+    /// (The heap part mirrors the TS ScanlineHeap; C# keeps a sorted list with O(n) splices instead.)
+    type ScanlineHeapSet() =
         let data = ResizeArray<float>()
+        let set = HashSet<float>()
 
         let siftUp (idx: int) =
             let data = data // avoid closure capture of 'this' in loop?
             let mutable index = idx
-            let value = data[index]
+            let value = Rarr.getIdx index data
             // Hole-sift: lift the value once, shift parents/children, then place.
             // Avoids temporary array allocation from destructuring swap on every step.
             let mutable loopOn = true
             while loopOn && index > 0 do
                 let parent = (index - 1) >>> 1
-                if data[parent] >= value then
+                let parentV = Rarr.getIdx parent data
+                if parentV >= value then
                     loopOn <- false
                 else
-                    data[index] <- data[parent]
+                    data |> Rarr.setIdx index parentV
                     index <- parent
-            data[index] <- value
+            data |> Rarr.setIdx index value
 
         let siftDown (idx: int) =
             let data = data // avoid closure capture of 'this' in loop?
             let mutable index = idx
             let length = Rarr.len data
-            let value = data[index]
+            let value = Rarr.getIdx index data
             let mutable loopOn = true
             while loopOn do
                 let left = (index <<< 1) + 1
@@ -427,32 +462,98 @@ module KlipInternal =
                     let right = left + 1
                     // Pick the larger child
                     let child =
-                        if right < length && data[right] > data[left] then right
+                        if right < length && Rarr.getIdx right data > Rarr.getIdx left data then right
                         else left
+                    let childV = Rarr.getIdx child data
                     // If the larger child isn't greater than val, done
-                    if data[child] <= value then
+                    if childV <= value then
                         loopOn <- false
                     else
-                        data[index] <- data[child]
+                        data |> Rarr.setIdx index childV
                         index <- child
-            data[index] <- value
+            data |> Rarr.setIdx index value
 
-        member _.Push(value: float) : unit =
-            data.Add(value)
-            siftUp (Rarr.lastIdx data)
+        /// The number of pending scanlines.
+        member _.Count : int =
+            Rarr.len data
 
-        /// return NaN if empty
+        /// Inserts y unless it is already pending (set-deduplicated heap push).
+        /// (A set-free dedup-on-pop variant — push duplicates, discard equal roots in Pop —
+        /// benchmarked slightly faster below ~512 minima where the heap is rarely active,
+        /// but equal-to-slower at large sizes and on duplicate-heavy inputs, so the set stays.
+        /// See Test/bench/scanline-threshold.mjs.)
+        member _.Insert(y: float) : unit =
+            if set.Add y then // Add returns false on duplicates: one hash lookup instead of Contains + Add
+                data.Add y
+                siftUp (Rarr.lastIdx data)
+
+        /// Removes and returns the largest pending Y, or NaN when empty.
         member _.Pop() : float =
             if Rarr.len data = 0 then
                 Double.NaN
             else
-                let maxV = data[0]
-                let last = data[Rarr.lastIdx data]
+                let maxV = Rarr.getIdx 0 data
+                set.Remove maxV |> ignore
+                let last = Rarr.getIdx (Rarr.lastIdx data) data
                 data |> Rarr.pop
                 if Rarr.len data > 0 then
-                    data[0] <- last
+                    data |> Rarr.setIdx 0 last
                     siftDown 0
                 maxV
 
-        member _.ClearData() : unit =
-            data|> Rarr.clear
+        member _.Clear() : unit =
+            data |> Rarr.clear
+            set.Clear()
+
+
+    /// Unsorted array of unique pending scanline Y coordinates.
+    /// Insert scans linearly for duplicates; Pop scans linearly for the maximum and
+    /// swap-removes it. O(n) per operation, but on a small contiguous float array with
+    /// no hashing or sifting — faster than `ScanlineHeapSet` for small scanline counts.
+    type ScanlineArray() =
+        let data = ResizeArray<float>()
+
+        /// The number of pending scanlines.
+        member _.Count : int =
+            Rarr.len data
+
+        /// Inserts y unless it is already pending.
+        /// Returns true if y was added, false if it was already present.
+        member _.Insert(y: float) : bool =
+            let len = Rarr.len data
+            let mutable i = 0
+            while i < len && Rarr.getIdx i data <> y do
+                i <- i + 1
+            if i = len then
+                data.Add y
+                true
+            else
+                false
+
+        /// Removes and returns the largest pending Y, or NaN when empty.
+        member _.Pop() : float =
+            let len = Rarr.len data
+            if len = 0 then
+                Double.NaN
+            else
+                let lastIdx = len - 1
+                let mutable bestIdx = 0
+                let mutable bestY = Rarr.getIdx 0 data
+                for i = 1 to lastIdx do
+                    let v = Rarr.getIdx i data
+                    if v > bestY then
+                        bestY <- v
+                        bestIdx <- i
+                data |> Rarr.setIdx bestIdx (Rarr.getIdx lastIdx data)
+                data |> Rarr.pop
+                bestY
+
+        /// Moves all pending values into the given heap container and clears this array.
+        /// Used to upgrade mid-sweep when the scanline count outgrows the array threshold.
+        member _.DrainInto(target: ScanlineHeapSet) : unit =
+            for i = 0 to Rarr.lastIdx data do
+                target.Insert(Rarr.getIdx i data)
+            data |> Rarr.clear
+
+        member _.Clear() : unit =
+            data |> Rarr.clear

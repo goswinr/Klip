@@ -7,7 +7,8 @@ export default defineConfig({
     include: ['tests/**/*.{test,spec}.ts'],
     exclude: ['node_modules', '_ts/fable_modules', '.git'],
     benchmark: {
-      include: ['bench/**/*.bench.ts']
+      include: ['bench/**/*.bench.ts'],
+      reporters: ['./bench/klip-reference-reporter.ts'],
     }
   }
 });

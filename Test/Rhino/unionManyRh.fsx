@@ -11,20 +11,16 @@ open Rhino.Scripting
 
 type rs = RhinoScriptSyntax
 
-let input : ResizeArray<Polyline2D> =
-    ResizeArray[
-        Polyline2D.create [
-            Pt(0.00049999,  1.0)
-            Pt(0.00049999, -1.0)
-            Pt(-3.0,  0.0)
-        ]
+rs.DisableRedraw()
+rs.LayerOn "poly"
 
-        Polyline2D.create [
-            Pt(0.00050001,  1.0)
-            Pt(0.00050001, -1.0)
-            Pt( 3.0,  0.0)
-        ]
-    ]
+let input : ResizeArray<Polyline2D> =
+    rs.GetObjects "polygons"
+    // rs.GetObjectsAndRemember "polygons--"
+    // |>! Seq.iter (rs.HideObject >> ignore) 
+    |>  Seq.map rs.CoercePolyline
+    |>  Seq.map Polyline2D.ofRhPolyline
+    |>  ResizeArray
 
 let draw lay (ps:Klip.Paths64<unit>) =
     for p in ps do
@@ -35,41 +31,50 @@ let draw lay (ps:Klip.Paths64<unit>) =
         |> rs.Ot.AddCurve
         |> rs.setLayer $"draw::{lay}"
 
-let print (ps:ResizeArray<Polyline2D> ) =
+let printAsCode(ps:ResizeArray<Polyline2D> ) =
     ps
     |> Seq.map Polyline2D.asFSharpCode
     |> Seq.iter (printfn "  %s")
 
 let unionKlip(ps:Klip.Paths64<unit>) =
     let c = Clipper64()
-    // c.ColinearityTolerance <- 1e-8
+    // c.ColinearityTolerance <- 1e-5
     // c.MergeVertexTolerance <- 0.002
     c.AddPaths(Paths64.ensurePositiveOrientations ps, PathType.Subject)
     c.Execute(ClipType.Union, FillRule.NonZero) |> fst
 
 let inputPaths =
     input
-    |> Seq.map Polyline2D.asPoints
-    |> Paths64.createFromXYMembers
+    |>! printAsCode
+    |>  Seq.map Polyline2D.asPoints
+    |>  Paths64.createFromXYMembers
 
 printfn $"Input: {input.Count} paths"
-draw "input" inputPaths
+draw $"input-{input.Count}" inputPaths
 
-let resKlip = inputPaths |> unionKlip
+let res1 = inputPaths |> unionKlip
 
-printfn $"Result: {resKlip.Count} paths"
-draw "result" resKlip
+printfn $"Result1: {res1.Count} paths"
+draw $"result1-{input.Count}" res1
 
+
+let res2 = res1 |> unionKlip
+
+printfn $"Result2: {res2.Count} paths"
+draw $"result2-{input.Count}" res2
 
 // for p in r do
     // let pl = Polyline2D.createDirectly p.XYs
     // printfn $"{pl.AsFSharpCode}"
 
+rs.LayerOff "poly"
+rs.EnableRedraw()
 
 
-
-
-
+(*
+Polyline2D.create [| Pt(9, 35); Pt(9, 37); Pt(7, 37.00000000000001); Pt(7, 34); Pt(14, 34); Pt(14, 37.00000000000001); Pt(12, 37); Pt(12, 35); Pt(9, 35) |]
+Polyline2D.create [| Pt(7, 37.00000000000001); Pt(8, 37); Pt(8, 38); Pt(7, 38); Pt(7, 37.00000000000001) |]
+*)
 
 
 

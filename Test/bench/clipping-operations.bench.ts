@@ -12,10 +12,8 @@ import {
 import { overlappingPairs, testData } from './test-data';
 import {
   Klip,
-  clearPolyTree,
   difference as klipDifference,
   intersect as klipIntersect,
-  newPolyTree,
   toKlipPaths,
   union as klipUnion,
 } from './klip-helpers';
@@ -111,9 +109,10 @@ function benchBooleanOperation(
 
     bench('Klip', () => {
       for (let i = 0; i < iterations; i++) {
-        Klip.booleanOp(clipType, klipSubject, klipClip, fillRule, undefined);
+        Klip.booleanOp(clipType, klipSubject, klipClip, fillRule);
       }
     });
+
   });
 }
 
@@ -138,9 +137,9 @@ function benchPolyTreeOperation(
     });
 
     bench('Klip', () => {
-      const polytree = newPolyTree();
-      Klip.booleanOpWithPolyTree(clipType, klipSubject, klipClip, polytree, fillRule, undefined);
+      Klip.booleanOpPolyTree(clipType, klipSubject, klipClip, fillRule);
     });
+
   });
 }
 
@@ -352,7 +351,7 @@ describe('Instance Reuse', () => {
       });
 
       bench('Klip', () => {
-        Klip.booleanOp(ClipType.Union, klipSubject, null, fillRule, undefined);
+        Klip.booleanOp(ClipType.Union, klipSubject, null, fillRule);
       });
     });
   }
@@ -377,7 +376,6 @@ describe('Instance Reuse', () => {
     const reusedPolytree = new PolyTree64();
     const klipSubject = toKlipPaths(nestedSubject);
     const klipClip = toKlipPaths(nestedClip);
-    const reusedKlipTree = newPolyTree();
     const wasmSubject = toWasmPaths(nestedSubject);
     const wasmClip = toWasmPaths(nestedClip);
     const wasmClipper = new Wasm.Clipper64();
@@ -401,8 +399,8 @@ describe('Instance Reuse', () => {
       });
 
       bench('Klip', () => {
-        clearPolyTree(reusedKlipTree);
-        Klip.booleanOpWithPolyTree(ClipType.Difference, klipSubject, klipClip, reusedKlipTree, fillRule, undefined);
+        // Klip's booleanOpPolyTree always returns a fresh tree (no reuse API).
+        Klip.booleanOpPolyTree(ClipType.Difference, klipSubject, klipClip, fillRule);
       });
     });
   }

@@ -27,11 +27,9 @@ do
         // Klip:
         let kr =
             xy
-            |> Paths64.createFromxyMembers scale
-            |> Klipper.unionSelf
-            |> Paths64.scaleDown scale
-
-        printfn $"Klip:    Scale: {scale}, Result Paths: {kr.Count}"
+            |> Paths64.createFromxyMembers
+            |> Klipper.unionSelfChecked
+        printfn $"Klip:     Scale: {scale}, Result Paths: {kr.Count}"
 
         // Clipper2:
         let cD =
@@ -42,12 +40,10 @@ do
                     c.Add(Clipper2Lib.PointD(p.x, p.y))
                 ps.Add(c)
             ps
-
         let cr =
             Clipper2Lib.Clipper.BooleanOp(
                 Clipper2Lib.ClipType.Union,
                 cD, null,
                 Clipper2Lib.FillRule.EvenOdd,
                 precision = i)
-
-        printfn $"Klipper: Scale: {scale}, Result Paths: {cr.Count}\n-"
+        printfn $"Clipper2: Scale: {scale}, Result Paths: {cr.Count}\n-"

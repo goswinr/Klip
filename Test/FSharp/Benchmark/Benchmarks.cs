@@ -20,10 +20,10 @@ namespace Clipper2Lib.Benchmark
                 .WithId("Quick")
                 .WithStrategy(RunStrategy.Throughput)
                 .WithLaunchCount(1)
-                .WithWarmupCount(8)
-                .WithIterationCount(4)
-                .WithInvocationCount(256)
-                .WithUnrollFactor(4)
+                .WithWarmupCount(2)
+                .WithIterationCount(2)
+                .WithInvocationCount(128)
+                .WithUnrollFactor(2)
             );
         }
     }
@@ -42,7 +42,7 @@ namespace Clipper2Lib.Benchmark
         private const int DisplayHeight = 600;
         private const int RandomSeed = 12345;
 
-        [Params( 100/*, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000*/)]
+        [Params( 100 , 500/*, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000*/)]
         public int EdgeCount { get; set; }
 
         [GlobalSetup]
@@ -63,7 +63,7 @@ namespace Clipper2Lib.Benchmark
         }
 
         [Benchmark]
-        public void Clipper2_Intersection_N()
+        public void Clipper2_Intersection()
         {
             Clipper64 c = new();
             c.AddSubject(_clipperSubj);
@@ -72,16 +72,16 @@ namespace Clipper2Lib.Benchmark
         }
 
         [Benchmark]
-        public void Klip_Intersection_N()
+        public void Klip_Intersection()
         {
             Klip.Clipper64<object> c = new();
             c.AddSubject(_klipSubj);
             c.AddClip(_klipClip);
-            c.Execute(Klip.ClipType.Intersection, Klip.FillRule.NonZero, _klipSolution, null);
+            c.Execute(Klip.ClipType.Intersection, Klip.FillRule.NonZero);
         }
 
         [Benchmark]
-        public void Clipper2_Union_N()
+        public void Clipper2_Union()
         {
             Clipper64 c = new();
             c.AddSubject(_clipperSubj);
@@ -90,16 +90,16 @@ namespace Clipper2Lib.Benchmark
         }
 
         [Benchmark]
-        public void Klip_Union_N()
+        public void Klip_Union()
         {
             Klip.Clipper64<object> c = new();
             c.AddSubject(_klipSubj);
             c.AddClip(_klipClip);
-            c.Execute(Klip.ClipType.Union, Klip.FillRule.NonZero, _klipSolution, null);
+            c.Execute(Klip.ClipType.Union, Klip.FillRule.NonZero);
         }
 
         [Benchmark]
-        public void Clipper2_Difference_N()
+        public void Clipper2_Difference()
         {
             Clipper64 c = new();
             c.AddSubject(_clipperSubj);
@@ -108,16 +108,16 @@ namespace Clipper2Lib.Benchmark
         }
 
         [Benchmark]
-        public void Klip_Difference_N()
+        public void Klip_Difference()
         {
             Klip.Clipper64<object> c = new();
             c.AddSubject(_klipSubj);
             c.AddClip(_klipClip);
-            c.Execute(Klip.ClipType.Difference, Klip.FillRule.NonZero, _klipSolution, null);
+            c.Execute(Klip.ClipType.Difference, Klip.FillRule.NonZero);
         }
 
         [Benchmark]
-        public void Clipper2_Xor_N()
+        public void Clipper2_Xor()
         {
             Clipper64 c = new();
             c.AddSubject(_clipperSubj);
@@ -126,12 +126,12 @@ namespace Clipper2Lib.Benchmark
         }
 
         [Benchmark]
-        public void Klip_Xor_N()
+        public void Klip_Xor()
         {
             Klip.Clipper64<object> c = new();
             c.AddSubject(_klipSubj);
             c.AddClip(_klipClip);
-            c.Execute(Klip.ClipType.Xor, Klip.FillRule.NonZero, _klipSolution, null);
+            c.Execute(Klip.ClipType.Xor, Klip.FillRule.NonZero);
         }
 
         private static Point64 MakeRandomPt(int maxWidth, int maxHeight, Random rand)

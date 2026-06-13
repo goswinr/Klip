@@ -2,7 +2,7 @@ namespace Klip.Tests
 
 open Microsoft.VisualStudio.TestTools.UnitTesting
 open Klip
-open Klip.KlipInternal
+open Klip.KlipInternalTypes
 open Klip.Tests.Helpers
 
 [<TestClass>]
@@ -20,9 +20,7 @@ type PolyTreeTests () =
         let inner = path [| 25.0;25.0; 75.0;25.0; 75.0;75.0; 25.0;75.0 |]
         let subj = paths [ outer; inner ]
 
-        let tree = PolyTree64<unit>()
-        Klipper.booleanOpWithPolyTree(
-            ClipType.Union, subj, null, tree, FillRule.EvenOdd, None)
+        let tree = Klipper.booleanOpPolyTree(ClipType.Union, subj, null,  FillRule.EvenOdd)
 
         Assert.AreEqual(1, tree.Count, "expected one outer contour at top level")
         let outerNode = tree.Child(0)
@@ -36,9 +34,7 @@ type PolyTreeTests () =
         let inner = path [| 25.0;25.0; 75.0;25.0; 75.0;75.0; 25.0;75.0 |]
         let subj = paths [ outer; inner ]
 
-        let tree = PolyTree64<unit>()
-        Klipper.booleanOpWithPolyTree(
-            ClipType.Union, subj, null, tree, FillRule.EvenOdd, None)
+        let tree = Klipper.booleanOpPolyTree(ClipType.Union, subj, null,  FillRule.EvenOdd)
 
         let flat = Klipper.polyTreeToPaths64 tree
         Assert.AreEqual(2, flat.Count, "expected outer + hole as two flat paths")
@@ -54,10 +50,29 @@ type PolyTreeTests () =
         let b = path [| 100.0;100.0; 110.0;100.0; 110.0;110.0; 100.0;110.0 |]
         let subj = paths [ a; b ]
 
-        let tree = PolyTree64<unit>()
-        Klipper.booleanOpWithPolyTree(
-            ClipType.Union, subj, null, tree, FillRule.NonZero, None)
+        let tree = Klipper.booleanOpPolyTree(ClipType.Union, subj, null,  FillRule.NonZero)
 
         Assert.AreEqual(2, tree.Count)
         Assert.AreEqual(0, tree.Child(0).Count)
         Assert.AreEqual(0, tree.Child(1).Count)
+
+    [<TestMethod>]
+    member _.ExecutePolyTreeWithoutOpenSubjectsReturnsNullOpenSolution () =
+        let subj = paths [ path [| 0.0;0.0; 10.0;0.0; 10.0;10.0; 0.0;10.0 |] ]
+        let c = Clipper64<unit>()
+        c.AddSubject(subj)
+
+        let tree, openSolution = c.ExecutePolyTree(ClipType.Union, FillRule.NonZero)
+
+        Assert.AreEqual(1, tree.Count)
+        Assert.IsNull(openSolution)
+
+    [<TestMethod>]
+    member _.PolyTreeToStringIncludesLeafContours () =
+        let subj = paths [ path [| 0.0;0.0; 10.0;0.0; 10.0;10.0; 0.0;10.0 |] ]
+        let tree = Klipper.booleanOpPolyTree(ClipType.Union, subj, null, FillRule.NonZero)
+
+        let text = tree.ToString()
+
+        // Assert.IsTrue(text.Contains("polygon (0) contains 0 holes"), text)
+        Assert.IsTrue(text.Contains("PolyTree with 1 polygon."), text)

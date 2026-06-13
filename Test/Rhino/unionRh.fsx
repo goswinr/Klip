@@ -18,18 +18,18 @@ type rs = RhinoScriptSyntax
 
 type XY = { x: float; y: float }
 
-module Util =  
+module Util =
 
-    let draw lay (ps: Point3d seq) =  
+    let draw lay (ps: Point3d seq) =
         ps
         |> Polyline
         |> fun p -> p.Add(p.First); p
         |> fun p -> p.RemoveNearlyEqualSubsequentPoints(1e-6); p
         |> fun p -> p.ToNurbsCurve() // nurbs allow duplicate points
         |> rs.Ot.AddCurve
-        |> rs.setLayer lay 
-    
-    
+        |> rs.setLayer lay
+
+
     let drawXY (ps:XY[][]) =
         for j, p in Seq.indexed ps do
             try
@@ -43,9 +43,9 @@ module Util =
             with e ->
                 eprintfn $"failed: polysXY with {p.Length} points"
                 printfn $"{e}"
-    
-    
-    
+
+
+
     let drawK sc (ps:Paths64<_>) =
         for j, p in Seq.indexed ps do
             try
@@ -75,8 +75,8 @@ module Util =
             with e ->
                 eprintfn $"failed: Clipper2 scale {sc}::{j} with {p.Count} points"
                 printfn $"{e}"
-                
-    let convertD(xy:XY[][]) : Clipper2Lib.PathsD = 
+
+    let convertD(xy:XY[][]) : Clipper2Lib.PathsD =
         let ps = Clipper2Lib.PathsD()
         for xs in xy do
             let c = Clipper2Lib.PathD()
@@ -94,7 +94,7 @@ do
         |>  JsonSerializer.Deserialize<XY[][][]>
         |>  Array.map Array.head
         |>! Util.drawXY
-   
+
 
     printfn $"Original Paths: {xy.Length}"
     for i = 1 to 5 do
@@ -103,9 +103,9 @@ do
         // Klip:
         let kr =
             xy
-            |> Paths64.createFromxyMembers scale
-            |> Klipper.unionSelf
-            |> Paths64.scaleDown scale
+            |> Paths64.createFromxyMembers
+            |> Klipper.unionSelfChecked
+
         Util.drawK i kr
         printfn $"Klip:    Scale: {scale}, Result Paths: {kr.Count}"
 
@@ -114,7 +114,7 @@ do
         let cr =
             Clipper2Lib.Clipper.BooleanOp(
                 Clipper2Lib.ClipType.Union,
-                Util.convertD xy, 
+                Util.convertD xy,
                 null,
                 Clipper2Lib.FillRule.EvenOdd,
                 precision = i)

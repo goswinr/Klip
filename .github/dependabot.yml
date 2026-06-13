@@ -8,4 +8,11 @@ updates:
     cooldown:
       default-days: 7
 
+  - package-ecosystem: "nuget" # for fable and test frameworks
+    directory: "./Test/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
 

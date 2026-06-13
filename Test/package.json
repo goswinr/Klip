@@ -1,9 +1,11 @@
 {
   "scripts": {
     "preinstall": "dotnet tool restore",
+    "clean": "dotnet fable clean --outDir ./_js --lang js --yes && dotnet fable clean --outDir ./_ts --lang ts --yes",
     "build":   "dotnet fable ../Klip.fsproj --outDir ./_js --lang js --noCache --noReflection --run        vite build --config vite.config.ts",
     "buildts": "dotnet fable ../Klip.fsproj --outDir ./_ts --lang ts --noCache --noReflection --run tsc && vite build --config vite.configTS.ts",
     "bench": "vitest bench --run",
+    "bench:scanline": "node bench/scanline-threshold.mjs",
     "test": "vitest --run"
   },
   "devDependencies": {

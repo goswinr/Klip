@@ -134,10 +134,10 @@ export function pointInPolygon(pt: Point64, polygon: KlipPath64): PointInPolygon
 //
 // Klip's PolyTree64 / PolyPath64 (Engine1.fs) at runtime is a plain object:
 //   { children: PolyPath64[], _parent: PolyPath64 | null, polygon: Path64 | null }
-// `booleanOpWithPolyTree` mutates `children` in place. The class has methods
-// like `count`, `child(i)`, `isHole`, `area()` in the F# definition, but those
-// are tree-shaken from the bundle (only the boolean ops + polyTreeToPaths64
-// are exported). So we provide free-function equivalents here.
+// `booleanOpPolyTree` returns such a tree. The class has methods like `count`,
+// `child(i)`, `isHole`, `area()` in the F# definition, but those are tree-shaken
+// from the bundle (only the boolean ops + polyTreeToPaths64 are exported). So we
+// provide free-function equivalents here that read the runtime fields directly.
 
 export interface KlipPolyPath64 {
   children: KlipPolyPath64[];
@@ -146,10 +146,6 @@ export interface KlipPolyPath64 {
 }
 
 export type KlipPolyTree64 = KlipPolyPath64;
-
-export function newPolyTree(): KlipPolyTree64 {
-  return { children: [], _parent: null, polygon: null };
-}
 
 export function treeCount(pp: KlipPolyPath64): number {
   return pp.children.length;

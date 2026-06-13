@@ -1,5 +1,5 @@
 // PolyTree Hierarchical Structure Tests — mirrors clipper2-ts/tests/polytree.test.ts
-// adapted to Klip's `booleanOpWithPolyTree` + free-function tree helpers.
+// adapted to Klip's `booleanOpPolyTree` (returns the tree) + free-function tree helpers.
 
 import { describe, test, expect } from 'vitest';
 import { Klip } from './klip-api';
@@ -10,7 +10,6 @@ import {
   areaPaths,
   pointInPolygon,
   PointInPolygonResult,
-  newPolyTree,
   treeArea,
   treeCount,
   treeChild,
@@ -95,14 +94,11 @@ describe('PolyTree Hierarchical Structure Tests', () => {
     const subj = toKlipPaths(testCase!.subjects);
     const clip = toKlipPaths(testCase!.clips);
 
-    const solutionTree = newPolyTree();
-    Klip.booleanOpWithPolyTree(
+    const solutionTree = Klip.booleanOpPolyTree(
       testCase!.clipType,
       subj,
       clip.length > 0 ? clip : null,
-      solutionTree,
       testCase!.fillRule,
-      undefined,
     );
 
     const solutionPaths: KlipPaths64 = Klip.polyTreeToPaths64(solutionTree);
@@ -171,14 +167,11 @@ describe('PolyTree Hierarchical Structure Tests', () => {
     subjects.push(makePath([198200, 12149800, 1010600, 12149800, 1011500, 11859600]));
     subjects.push(makePath([21996700, -7432000, 22096700, -7432000, 22096700, -7332000]));
 
-    const solutionTree = newPolyTree();
-    Klip.booleanOpWithPolyTree(
+    const solutionTree = Klip.booleanOpPolyTree(
       ClipType.Union,
       subjects,
       null,
-      solutionTree,
       FillRule.NonZero,
-      undefined,
     );
 
     // Expected nesting: 1 outer with 2 holes, one hole has 1 nested polygon.
@@ -194,14 +187,11 @@ describe('PolyTree Hierarchical Structure Tests', () => {
 
     const subjects: KlipPaths64 = [outer, hole, inner];
 
-    const solutionTree = newPolyTree();
-    Klip.booleanOpWithPolyTree(
+    const solutionTree = Klip.booleanOpPolyTree(
       ClipType.Union,
       subjects,
       null,
-      solutionTree,
       FillRule.EvenOdd,
-      undefined,
     );
 
     // outer (10000) - hole (3600) + inner (1600) = 8000

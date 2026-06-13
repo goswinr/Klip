@@ -18,8 +18,10 @@
   <ItemGroup>
     <Compile Include="Tests/Helpers.fs" />
     <Compile Include="Tests/BooleanTests.fs" />
+    <Compile Include="Tests/UnionTouchingBridgeTests.fs" />
     <Compile Include="Tests/PolyTreeTests.fs" />
     <Compile Include="Tests/SliverTriangleTests.fs" />
+    <Compile Include="Tests/ApiContractTests.fs" />
   </ItemGroup>
 
 </Project>

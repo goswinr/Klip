@@ -27,24 +27,21 @@ interface KlipApi {
     subject: KlipPaths64,
     clip: KlipPaths64 | null,
     fillRule: number,
-    zCallback: undefined,
   ): KlipPaths64;
 
-  booleanOpWithPolyTree(
+  booleanOpPolyTree(
     clipType: number,
     subject: KlipPaths64,
     clip: KlipPaths64 | null,
-    polyTree: KlipPolyTree64,
     fillRule: number,
-    zCallback: undefined,
-  ): void;
+  ): KlipPolyTree64;
 
   polyTreeToPaths64(polyTree: KlipPolyTree64): KlipPaths64;
 }
 
 interface KlipBundle {
   Klipper_booleanOp: KlipApi['booleanOp'];
-  Klipper_booleanOpWithPolyTree: KlipApi['booleanOpWithPolyTree'];
+  Klipper_booleanOpPolyTree: KlipApi['booleanOpPolyTree'];
   Klipper_polyTreeToPaths64: KlipApi['polyTreeToPaths64'];
 }
 
@@ -52,7 +49,7 @@ const bundle = KlipModule as unknown as KlipBundle;
 
 export const Klip: KlipApi = {
   booleanOp: bundle.Klipper_booleanOp,
-  booleanOpWithPolyTree: bundle.Klipper_booleanOpWithPolyTree,
+  booleanOpPolyTree: bundle.Klipper_booleanOpPolyTree,
   polyTreeToPaths64: bundle.Klipper_polyTreeToPaths64,
 };
 
@@ -74,22 +71,12 @@ export function toKlipPaths(paths: readonly (readonly Point64[])[]): KlipPaths64
   return out;
 }
 
-export function newPolyTree(): KlipPolyTree64 {
-  return { children: [], _parent: null, polygon: null };
-}
-
-export function clearPolyTree(polyTree: KlipPolyTree64): void {
-  polyTree.children.length = 0;
-  polyTree._parent = null;
-  polyTree.polygon = null;
-}
-
 export function union(
   subject: KlipPaths64,
   fillRule: FillRule = FillRule.NonZero,
   clip: KlipPaths64 | null = null,
 ): KlipPaths64 {
-  return Klip.booleanOp(ClipType.Union, subject, clip, fillRule, undefined);
+  return Klip.booleanOp(ClipType.Union, subject, clip, fillRule);
 }
 
 export function intersect(
@@ -97,7 +84,7 @@ export function intersect(
   clip: KlipPaths64,
   fillRule: FillRule = FillRule.NonZero,
 ): KlipPaths64 {
-  return Klip.booleanOp(ClipType.Intersection, subject, clip, fillRule, undefined);
+  return Klip.booleanOp(ClipType.Intersection, subject, clip, fillRule);
 }
 
 export function difference(
@@ -105,7 +92,7 @@ export function difference(
   clip: KlipPaths64,
   fillRule: FillRule = FillRule.NonZero,
 ): KlipPaths64 {
-  return Klip.booleanOp(ClipType.Difference, subject, clip, fillRule, undefined);
+  return Klip.booleanOp(ClipType.Difference, subject, clip, fillRule);
 }
 
 export function xor(
@@ -113,5 +100,5 @@ export function xor(
   clip: KlipPaths64,
   fillRule: FillRule = FillRule.NonZero,
 ): KlipPaths64 {
-  return Klip.booleanOp(ClipType.Xor, subject, clip, fillRule, undefined);
+  return Klip.booleanOp(ClipType.Xor, subject, clip, fillRule);
 }

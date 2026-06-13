@@ -54,7 +54,7 @@ describe('Sliver triangle union bug (Issue #1067)', () => {
 
     const inputArea = absSum(poly1) + absSum(poly2);
 
-    const result = Klip.booleanOp(ClipType.Union, poly1, poly2, FillRule.NonZero, undefined);
+    const result = Klip.booleanOp(ClipType.Union, poly1, poly2, FillRule.NonZero);
 
     const resultArea = absSum(result);
 

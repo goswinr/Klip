@@ -42,6 +42,10 @@ npm run build   # rebuild _dist/Klip.mjs if F# sources changed
 npm run bench   # vitest bench --run
 ```
 
+The Vitest benchmark reporter keeps Klip as the final summary reference: Klip
+is printed as `1.00x reference`, and the other implementations are shown as
+throughput ratios versus Klip instead of versus the fastest run.
+
 ### Results
 
 Latest local run `npm run bench`, 30 side-by-side Vitest

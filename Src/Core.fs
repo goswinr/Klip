@@ -1,11 +1,11 @@
-(* ******************************************************************************
+(*******************************************************************************
 * Author    :  Angus Johnson                                                   *
-* Date      :  11 October 2025                                                 *
+* Date      :  12 December 2025                                                *
 * Website   :  https://www.angusj.com                                          *
 * Copyright :  Angus Johnson 2010-2025                                         *
-* Purpose   :  Path Offset (Inflate/Shrink)                                    *
+* Purpose   :  Core structures and functions for the Clipper Library           *
 * License   :  https://www.boost.org/LICENSE_1_0.txt                           *
-****************************************************************************** *)
+*******************************************************************************)
 
 // ported to TypeScript at https://github.com/countertype/clipper2-ts
 // then ported to F# and simplified here:
@@ -14,8 +14,8 @@ namespace Klip
 
 open System
 
-type OPT = Runtime.InteropServices.OptionalAttribute
-type DEF = Runtime.InteropServices.DefaultParameterValueAttribute
+type internal OPT = Runtime.InteropServices.OptionalAttribute
+type internal DEF = Runtime.InteropServices.DefaultParameterValueAttribute
 
 
 
@@ -28,7 +28,7 @@ module internal Operators =
     let inline ( =!= ) (x: obj) (y: obj) : bool =
         not (Object.ReferenceEquals(x, y))
 
-//#region Null module
+// #region Null module
 
 module internal Null =
 
@@ -66,13 +66,13 @@ module internal Null =
             Unchecked.defaultof<'T>
         #endif
 
-//#region Rarr module
-
+// #region Rarr module
 [<RequireQualifiedAccess>]
 module internal Rarr =
 
+
     /// returns resizeArray.Count , but optimized in Fable
-    let inline len  (resizeArray: ResizeArray<'T>) : int =
+    let inline len (resizeArray: ResizeArray<'T>) : int =
         #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
             Fable.Core.JsInterop.emitJsExpr (resizeArray) "$0.length" // avoid call to count() in fable lib
         #else
@@ -128,11 +128,16 @@ module internal Rarr =
             arr[i] <- value
         #endif
 
+    let inline intSumBy (mapping: 'T -> int) (resizeArray: ResizeArray<'T>) : int =
+        let mutable total = 0
+        for i = 0 to resizeArray |> lastIdx do
+            total <- total + mapping resizeArray[i]
+        total
 
 
 
-//#endregion
-//#region type Path64
+// #endregion
+// #region type Path64
 
 
 /// Contains a sequence of vertices defining a single contour.
@@ -147,7 +152,7 @@ module internal Rarr =
 ///
 /// If no Z values are needed, the type parameter 'Z can be left as unit.
 /// Use the static Path64.create... methods to create Path64 instances, which will ensure the correct type is used for Z values.
-/// When a Path64 is created without Z values, it's type will be Path64<unit>, and the Zs member will be None.
+/// When a Path64 is created without Z values, its type will be Path64<unit>, and the Zs member will be None.
 [<AllowNullLiteral>]
 type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
 
@@ -187,7 +192,7 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
     /// Returns true if the path has three or more points
     /// (that is, six or more coordinates), false otherwise.
     /// A path needs at least three points to be a valid polygon, so this is a common check.
-    /// But it might still have zero Area if the points are collinear.
+    /// But it might still have zero Area if the points are colinear.
     member _.HasThreeOrMorePoints : bool =
         xys.Count >= 6
 
@@ -199,18 +204,18 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
     /// Gets the X ordinate at the given point index.
     /// Accesses the internal XYs ResizeArray via xys[index * 2].
     member _.GetX(index: int) : float =
-        xys.[index * 2]
+        Rarr.getIdx (index * 2) xys
 
     /// Gets the Y ordinate at the given point index.
     /// Accesses the internal XYs ResizeArray via xys[index * 2 + 1].
     member _.GetY(index: int) : float =
-        xys.[index * 2 + 1]
+        Rarr.getIdx (index * 2 + 1) xys
 
     /// Gets the Z value at the given point index.
     /// This is only valid if Z values were provided in the constructor, otherwise it throws an exception.
     member _.GetZ(index: int) : 'Z =
         match zs with
-        | Some zs -> zs.[index]
+        | Some zs -> Rarr.getIdx index zs
         | None -> raise (InvalidOperationException "Path64.GetZ: This path does not have Z values.")
 
     /// Computes the total length of the path, considering it as an open path.
@@ -222,12 +227,12 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
             0.0
         else
             let mutable total = 0.0
-            let mutable prevX = xys[0]
-            let mutable prevY = xys[1]
+            let mutable prevX = Rarr.getIdx 0 xys
+            let mutable prevY = Rarr.getIdx 1 xys
             let mutable i = 2
             while i <= cnt - 2 do
-                let x = xys[i]
-                let y = xys[i + 1]
+                let x = Rarr.getIdx i xys
+                let y = Rarr.getIdx (i + 1) xys
                 i <- i + 2
                 let dx = x - prevX
                 let dy = y - prevY
@@ -245,12 +250,12 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
             0.0
         else
             let mutable total = 0.0
-            let mutable prevX = xys[xys.Count - 2] // start at last point's X
-            let mutable prevY = xys[xys.Count - 1]
+            let mutable prevX = Rarr.getIdx (cnt - 2) xys // start at last point's X
+            let mutable prevY = Rarr.getIdx (cnt - 1) xys
             let mutable i = 0 // start at first point
-            while i <= xys.Count - 2 do
-                let x = xys[i]
-                let y = xys[i + 1]
+            while i <= cnt - 2 do
+                let x = Rarr.getIdx i xys
+                let y = Rarr.getIdx (i + 1) xys
                 i <- i + 2
                 let dx = x - prevX
                 let dy = y - prevY
@@ -270,12 +275,12 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
             let coords = p.XYs
             let mutable total = 0.0
             let mutable prevCoord = (cnt - 1) * 2
-            let mutable prevX = coords[prevCoord]
-            let mutable prevY = coords[prevCoord + 1]
+            let mutable prevX = Rarr.getIdx prevCoord coords
+            let mutable prevY = Rarr.getIdx (prevCoord + 1) coords
             for i = 0 to cnt - 1 do
                 let coord = i * 2
-                let x = coords[coord]
-                let y = coords[coord + 1]
+                let x = Rarr.getIdx coord coords
+                let y = Rarr.getIdx (coord + 1) coords
                 total <- total + (prevY + y) * (prevX - x)
                 prevX <- x
                 prevY <- y
@@ -318,8 +323,8 @@ type internal PointInPolygonResult =
     | IsInside = 1
     | IsOutside = 2
 
-//#endregion
-//#region module Geo
+// #endregion
+// #region module Geo
 
 module internal Geo =
 
@@ -330,7 +335,7 @@ module internal Geo =
         else
             Path64<'Z>(ResizeArray<float>(), None)
 
-        /// For internal use only, always return 'Z even when it should be unit
+    /// For internal use only, always return 'Z even when it should be unit
     let inline emptyPath64Sized<'Z> (hasZ:bool) (count:int) : Path64<'Z> =
         if hasZ then
             Path64<'Z>(ResizeArray<float>(count), Some (ResizeArray<'Z>(count)))
@@ -338,94 +343,81 @@ module internal Geo =
             Path64<'Z>(ResizeArray<float>(count), None)
 
 
-    /// Formerly rounded a float to the nearest integer to keep all coordinates on
-    /// the integer grid. The engine now works with unrounded floats, so this is the
-    /// identity function: it simply returns its input unchanged. It is kept (instead
-    /// of removing the call sites) so the few remaining call sites read intentionally.
-    let inline jsRound (x: float) : float =
-        x
-        // previously to match Clipper2:
-        // #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
-        //     // Fable.Core.JsInterop.emitJsExpr x "Math.round($0)"
-        //     Fable.Core.JsInterop.emitJsExpr x "Math.trunc($0)" // apparently faster? Tests still pass
-        // #else
-        //     // Math.Round x
-        //     Math.Truncate x // apparently faster? Tests still pass
-        // #endif
+    /// abs (a - b) <= tol
+    let inline isEqualWithin (tol: float) (a: float) (b: float) : bool =
+        abs (a - b) <= tol
+
+    /// abs (a - b) > tol
+    let inline isNotEqualWithin (tol: float) (a: float) (b: float) : bool =
+        abs (a - b) > tol
 
 
-    // new for exact floats:
+    /// Dimensionless tolerance for treating a cross product as zero, i.e. three points as
+    /// colinear. Coordinates are no longer snapped to the integer grid, so an
+    /// intersection point computed to lie on an edge is off by floating-point rounding
+    /// error and the former exact test (a*b = c*d) almost never holds.
+    ///
+    /// The cross product of the two edge vectors U=(a,c) and W=(d,b) is
+    /// `a*b - c*d = |U|*|W|*sin θ`, where θ is the turn angle at the shared point.
+    /// Dividing by `|U|*|W|` therefore yields `sin θ`, so this constant is effectively
+    /// an angle tolerance: points are colinear when the turn is within the configured tolerance. Using
+    /// the edge-length scale (rather than the former `|a*b| + |c*d|`) keeps the test
+    /// meaningful at any coordinate scale AND when both products are individually near
+    /// zero — e.g. a near-horizontal or near-vertical spike, where a product-relative
+    /// tolerance collapses to ~0 and the spike vertex is never recognized as colinear.
+    /// This also lets colinear cleanup detect and close nearly 180-degree U-turn spikes.
+    ///
+    /// Stored pre-squared (this is `tolerance^2`) to avoid squaring in `crossIsZero`.
+    /// Carried by the caller (e.g. `Clipper64.ColinearityTolerance`, which exposes the
+    /// un-squared `sin θ` tolerance) rather than a module-global, so two clips can use
+    /// different colinearity tolerances without interfering.
 
-    /// Coordinate-equality tolerance.
-    /// Intersection coordinates are no longer snapped to the integer grid, so two
-    /// coordinates that represent "the same point" can differ by floating-point
-    /// rounding error. Plain equality (`a = b`) is therefore replaced by
-    /// `abs (a - b) < coordEqTol`. The tolerance is deliberately tiny: it must absorb
-    /// float noise without fusing genuinely-distinct points (real coordinates can be
-    /// as little as 1 unit apart), so it stays well below 1.0.
-    [<Literal>]
-    let coordEqTol = 1e-6
-
-    let inline coordEq (a: float) (b: float) : bool =
-        abs (a - b) < coordEqTol
-
-    /// The negation of [coordEq]: true when two coordinates are at least [coordEqTol] apart.
-    let inline coordNeq (a: float) (b: float) : bool =
-        abs (a - b) >= coordEqTol
-
-    /// Relative tolerance for treating a cross product `prod1 - prod2` (= a*b - c*d)
-    /// as zero, i.e. three points as collinear. Coordinates are no longer snapped to
-    /// the integer grid, so an intersection point computed to lie on an edge is off by
-    /// floating-point rounding error and the former exact test (a*b = c*d) almost never
-    /// holds. Because the products scale with the square of the coordinates, a *relative*
-    /// tolerance absorbs that error at any scale (small test coords up to ~1e7 sliver
-    /// coords) while staying far below any genuine, non-collinear angle.
-    [<Literal>]
-    let crossCollinearRelTol = 1e-12
-
-    /// True when the two delta-products are equal to within [crossCollinearRelTol],
-    /// i.e. the underlying cross product is effectively zero (collinear).
-    let inline crossIsZero (prod1: float) (prod2: float) : bool =
-        abs (prod1 - prod2) <= crossCollinearRelTol * (abs prod1 + abs prod2)
+    /// True when the cross product of edge vectors U=(a,c) and W=(d,b) is effectively
+    /// zero relative to the edge lengths, i.e. the three points are colinear, given the
+    /// squared colinearity tolerance `colinTolSqrd`.
+    /// Compared in squared form to avoid a sqrt: `(a*b - c*d)^2 <= tolerance^2 * |U|^2 * |W|^2`.
+    let inline crossIsZero (colinTolSqrd: float) (a: float) (b: float) (c: float) (d: float) : bool =
+        let cross = a * b - c * d
+        let scaleSq = (a * a + c * c) * (b * b + d * d)
+        cross * cross <= colinTolSqrd * scaleSq // needs `<=` because both sides might be zero
 
 
-    let inline crossProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
+    let inline crossProductSign (colinTolSqrd: float) (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
         let a = pt2X - pt1X
         let b = pt3Y - pt2Y
         let c = pt2Y - pt1Y
         let d = pt3X - pt2X
-        let prod1 = a * b
-        let prod2 = c * d
-        if crossIsZero prod1 prod2 then
+        if crossIsZero colinTolSqrd a b c d then
             0
-        elif prod1 > prod2 then
+        elif a * b > c * d then
             1
         else
             -1
 
 
-    let segsIntersectNotInclusive(seg1aX: float, seg1aY: float, seg1bX: float, seg1bY: float, seg2aX: float, seg2aY: float, seg2bX: float, seg2bY: float) : bool =
-        let s1 = crossProductSign (seg1aX, seg1aY, seg2aX, seg2aY, seg2bX, seg2bY)
-        let s2 = crossProductSign (seg1bX, seg1bY, seg2aX, seg2aY, seg2bX, seg2bY)
-        let s3 = crossProductSign (seg2aX, seg2aY, seg1aX, seg1aY, seg1bX, seg1bY)
-        let s4 = crossProductSign (seg2bX, seg2bY, seg1aX, seg1aY, seg1bX, seg1bY)
+    let segsIntersectNotInclusive(colinTolSqrd: float, seg1aX: float, seg1aY: float, seg1bX: float, seg1bY: float, seg2aX: float, seg2aY: float, seg2bX: float, seg2bY: float) : bool =
+        let s1 = crossProductSign colinTolSqrd (seg1aX, seg1aY, seg2aX, seg2aY, seg2bX, seg2bY)
+        let s2 = crossProductSign colinTolSqrd (seg1bX, seg1bY, seg2aX, seg2aY, seg2bX, seg2bY)
+        let s3 = crossProductSign colinTolSqrd (seg2aX, seg2aY, seg1aX, seg1aY, seg1bX, seg1bY)
+        let s4 = crossProductSign colinTolSqrd (seg2bX, seg2bY, seg1aX, seg1aY, seg1bX, seg1bY)
         (s1 <> 0 && s2 <> 0 && s1 <> s2)
         &&
         (s3 <> 0 && s4 <> 0 && s3 <> s4)
 
 
-    // Returns true when a*b == c*d to within [crossCollinearRelTol].
-    // (Formerly an exact comparison; relaxed to a relative tolerance now that
-    // coordinates carry floating-point error instead of lying on the integer grid.)
-    let inline productsAreEqual (a: float, b: float, c: float, d: float) : bool =
-        crossIsZero (a * b) (c * d)
+    /// Returns true when the cross product a*b - c*d is effectively zero, i.e. the edge
+    /// vectors U=(a,c) and W=(d,b) are colinear (to within the squared tolerance colinTolSqrd).
+    /// (Formerly an exact comparison; relaxed now that coordinates carry floating-point
+    /// error instead of lying on the integer grid.)
+    let inline productsAreEqual (colinTolSqrd: float, a: float, b: float, c: float, d: float) : bool =
+        crossIsZero colinTolSqrd a b c d
 
-    let isCollinear (pt1X: float, pt1Y: float, sharedX: float, sharedY: float, pt2X: float, pt2Y: float) : bool =
+    let isColinear (colinTolSqrd: float, pt1X: float, pt1Y: float, sharedX: float, sharedY: float, pt2X: float, pt2Y: float) : bool =
         let a = sharedX - pt1X
         let b = pt2Y - sharedY
         let c = sharedY - pt1Y
         let d = pt2X - sharedX
-        productsAreEqual (a, b, c, d)
+        productsAreEqual (colinTolSqrd, a, b, c, d)
 
     let inline dotProduct (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : float =
         let a = pt2X - pt1X
@@ -443,16 +435,18 @@ module internal Geo =
         else
             0
 
-    let pointInPolygon (ptX: float, ptY: float, polygon: Path64<'Z>) : PointInPolygonResult =
+    let pointInPolygon (coordEqTol: float, colinTolSqrd: float, ptX: float, ptY: float, polygon: Path64<'Z>) : PointInPolygonResult =
+        let inline isEqual a b = isEqualWithin coordEqTol a b
+        let inline crossProductSign args = crossProductSign colinTolSqrd args
         let len = polygon.PointCount
         if len < 3 then
             PointInPolygonResult.IsOutside
         else
             let coords = polygon.XYs
-            let inline getX i = coords[i * 2]
-            let inline getY i = coords[i * 2 + 1]
+            let inline getX i = Rarr.getIdx (i * 2) coords
+            let inline getY i = Rarr.getIdx (i * 2 + 1) coords
             let mutable start = 0
-            while start < len && coordEq (getY start) ptY do
+            while start < len && isEqual (getY start) ptY do
                 start <- start + 1
             if start = len then
                 PointInPolygonResult.IsOutside
@@ -492,9 +486,9 @@ module internal Geo =
                             let prevX = getX prevIdx
                             let prevY = getY prevIdx
 
-                            if coordEq currY ptY then
-                                if coordEq currX ptX ||
-                                   (coordEq currY prevY && ((ptX < prevX) <> (ptX < currX))) then
+                            if isEqual currY ptY then
+                                if isEqual currX ptX ||
+                                   (isEqual currY prevY && ((ptX < prevX) <> (ptX < currX))) then
                                     hasResult <- true
                                     result <- PointInPolygonResult.IsOn
                                     loopOn <- false
@@ -547,7 +541,7 @@ module internal Geo =
                         else
                             PointInPolygonResult.IsInside
 
-    let path2ContainsPath1 (path1: Path64<'Z>) (path2: Path64<'Z>) : bool =
+    let path2ContainsPath1 (coordEqTol: float) (colinTolSqrd: float) (path1: Path64<'Z>) (path2: Path64<'Z>) : bool =
         // We need to make some accommodation for rounding errors so we don't
         // jump if the first vertex is found outside.
         let mutable pip = PointInPolygonResult.IsOn
@@ -557,7 +551,7 @@ module internal Geo =
         let coords = path1.XYs
         while not earlyDone && i < path1.PointCount do
             let coord = i * 2
-            match pointInPolygon (coords[coord], coords[coord + 1], path2) with
+            match pointInPolygon (coordEqTol, colinTolSqrd, Rarr.getIdx coord coords, Rarr.getIdx (coord + 1) coords, path2) with
             | PointInPolygonResult.IsOutside ->
                 if pip = PointInPolygonResult.IsOutside then
                     earlyResult <- false
@@ -588,15 +582,15 @@ module internal Geo =
                 let mutable bottom = Double.MinValue
                 for i = 0 to path1.PointCount - 1 do
                     let coord = i * 2
-                    let x = coords[coord]
-                    let y = coords[coord + 1]
+                    let x = Rarr.getIdx coord coords
+                    let y = Rarr.getIdx (coord + 1) coords
                     if x < left   then left <- x
                     if x > right  then right <- x
                     if y < top    then top <- y
                     if y > bottom then bottom <- y
-                let midX = jsRound((left + right) * 0.5)
-                let midY = jsRound((top + bottom) * 0.5)
-                pointInPolygon (midX, midY, path2) <> PointInPolygonResult.IsOutside
+                let midX = (left + right) * 0.5 // no more rounding (to int64) here
+                let midY = (top + bottom) * 0.5 // no more rounding (to int64) here
+                pointInPolygon (coordEqTol, colinTolSqrd, midX, midY, path2) <> PointInPolygonResult.IsOutside
 
     /// Reverses a path (returns a new Path64).
     let reversePath (path: Path64<'Z>) : Path64<'Z> =
@@ -609,13 +603,13 @@ module internal Geo =
             let pathZs = path.Zs.Value
             let resZs = result.Zs.Value
             for i = cnt - 1 downto 0 do
-                resXYs.Add(xys[i * 2])
-                resXYs.Add(xys[i * 2 + 1])
-                resZs.Add(pathZs[i])
+                resXYs.Add(Rarr.getIdx (i * 2) xys)
+                resXYs.Add(Rarr.getIdx (i * 2 + 1) xys)
+                resZs.Add(Rarr.getIdx i pathZs)
         else
             for i = cnt - 1 downto 0 do
-                resXYs.Add(xys[i * 2])
-                resXYs.Add(xys[i * 2 + 1])
+                resXYs.Add(Rarr.getIdx (i * 2) xys)
+                resXYs.Add(Rarr.getIdx (i * 2 + 1) xys)
         result
 
 

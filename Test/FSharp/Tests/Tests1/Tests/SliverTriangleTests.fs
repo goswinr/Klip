@@ -46,7 +46,7 @@ type SliverTriangleTests () =
         let inputArea = totalAbsArea poly1 + totalAbsArea poly2
 
         let result =
-            Klipper.booleanOp(ClipType.Union, poly1, poly2, FillRule.NonZero, None)
+            Klipper.booleanOp(ClipType.Union, poly1, poly2, FillRule.NonZero)
             |> roundPaths
 
         let resultArea = totalAbsArea result

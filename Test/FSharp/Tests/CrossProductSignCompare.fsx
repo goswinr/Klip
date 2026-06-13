@@ -98,7 +98,7 @@ BigDecimal.AlwaysTruncate <- false
 printfn "Comparing CrossProductSign with a direct float determinant sign"
 printfn "Point64 constructors round coordinates, so this script assigns X/Y directly"
 printfn "to simulate Point64 behaving as a true float64 point type."
-printfn "pt3 changes in integer steps around a near-collinear large-coordinate case."
+printfn "pt3 changes in integer steps around a near-colinear large-coordinate case."
 printfn "The exact determinant here is largeBase * step, so the expected sign is sign(step)."
 printfn ""
 printfn ""
