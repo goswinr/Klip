@@ -18,7 +18,8 @@ clipping, and triangulation are not included.
 
 It runs on .NET and JavaScript via [Fable](https://fable.io/), so the same source serves Rhino, Revit,
 and browser apps. To make it suitable for JS runtimes it is in many parts derived from the TypeScript
-port [clipper2-ts](https://github.com/countertype/clipper2-ts). All original and many new tests pass.
+port [clipper2-ts](https://github.com/countertype/clipper2-ts). All original tests pass, along with many new
+tests for unions of almost-aligned polygons.
 
 The key difference from Clipper2: Klip uses `float` coordinates throughout instead of `int64`.
 Clipper2 snaps every coordinate onto an integer grid before clipping; Klip removes that step and computes
