@@ -50,8 +50,9 @@ separate, as in Clipper2. If seam-sharing pieces come out separate, the toleranc
 coordinate magnitude — scale them up (see [Tolerances and scaling](#tolerances-and-scaling)) rather than
 rescaling your input.
 
-You do not need to scale coordinates before clipping — use your source units directly. If you need integer
-output, **round the solution coordinates yourself after clipping** (e.g. with `System.Math.Round`).
+You do not need to scale coordinates before clipping — use your source units directly. If results are off for
+your coordinate magnitude, adjust the distance tolerances rather than rescaling your input (see
+[Tolerances and scaling](#tolerances-and-scaling)).
 
 The `Snap` module can optionally pre-snap almost-aligned coordinates (see [below](#snap-preprocessing)).
 
