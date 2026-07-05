@@ -178,6 +178,9 @@ tuning:
   (default `2.0`, the old integer-grid constant).
 - `SplitAreaTolerance`: absolute area window for the self-intersection split (default `2.0`); being an area
   it scales with the *square* of the coordinate magnitude.
+- `SetToleranceUnit u`: sets all five scale-dependent tolerances above from one length `u` — the distance
+  below which geometry is meaningless to you (one grid unit in integer-Clipper2 terms). `SetToleranceUnit 1.0`
+  reproduces the defaults; see [Tolerances and scaling](#tolerances-and-scaling).
 - `ReverseSolution`: reverses output orientation.
 - `ZCallback`: computes metadata for vertices created at intersections.
 
@@ -185,9 +188,16 @@ tuning:
 
 The distance tolerances (`CoordEqTolerance`, `MergeVertexTolerance`, `NearTopYToleranceCap`,
 `SmallTriangleTolerance`, and the area-valued `SplitAreaTolerance`) are absolute and do **not** auto-scale —
-the engine does not normalize coordinate magnitude. With `M` the maximum absolute coordinate, multiply the
-distance defaults by roughly `M` (and `SplitAreaTolerance` by `M²`). The angle tolerances
-(`ColinearityTolerance`, `HorizontalAngleTolerance`) are scale-independent.
+the engine does not normalize coordinate magnitude. Instead of scaling the five values individually, set
+them all from one length with `c.SetToleranceUnit u`: `CoordEqTolerance` and `MergeVertexTolerance` become
+`1e-5 * u`, `NearTopYToleranceCap` and `SmallTriangleTolerance` become `2.0 * u`, and `SplitAreaTolerance`
+becomes `2.0 * u²`. `SetToleranceUnit 1.0` reproduces the defaults exactly; with `M` the maximum absolute
+input coordinate, `u = M * 1e-6` reproduces their behaviour at the coordinate magnitude (~1e6) they are
+calibrated for. Every tolerance comparison in the engine is dimensionally homogeneous, so clipping is
+scale-equivariant: scaling all inputs by `s` together with the unit yields the identically scaled solution.
+The angle tolerances (`ColinearityTolerance`, `HorizontalAngleTolerance`) are scale-independent and never
+need adjusting; `MergeVertexTolerance` may still need raising independently when touching contours carry
+genuine seam noise (a gap `g` needs roughly `MergeVertexTolerance > g`).
 
 ### Snap preprocessing
 

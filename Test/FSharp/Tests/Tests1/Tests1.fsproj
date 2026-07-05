@@ -21,6 +21,7 @@
     <Compile Include="Tests/UnionTouchingBridgeTests.fs" />
     <Compile Include="Tests/PolyTreeTests.fs" />
     <Compile Include="Tests/SliverTriangleTests.fs" />
+    <Compile Include="Tests/ToleranceUnitTests.fs" />
     <Compile Include="Tests/ApiContractTests.fs" />
   </ItemGroup>
 

@@ -117,9 +117,10 @@ top-to-bottom; order in `Klip.fsproj` matters):
   - The engine does **not** normalize coordinate magnitude. All absolute tolerances
     (`CoordEqTolerance`, `MergeVertexTolerance`, `NearTopYToleranceCap`, `SmallTriangleTolerance`,
     and the area-valued `SplitAreaTolerance`) are per-instance and must be scaled by the *caller*
-    to the input's coordinate magnitude; the angle tolerances (`ColinearityTolerance`,
-    `HorizontalAngleTolerance`) are scale-free. For integer output, round solution coords yourself
-    after clipping.
+    to the input's coordinate magnitude — individually, or all five at once from one length via
+    `Clipper64.SetToleranceUnit` (unit `1.0` = the defaults; `SplitAreaTolerance` scales with the
+    unit *squared*); the angle tolerances (`ColinearityTolerance`, `HorizontalAngleTolerance`)
+    are scale-free. For integer output, round solution coords yourself after clipping.
 
 ## Open vs closed paths
 

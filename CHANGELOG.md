@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The first three digits of the version number (e.g. `3.0.2`) correspond to the original Clipper2 version,
 while the last digits indicate the release number of this F# port.
 
+## [3.0.1] - 2026-07-05
+
+### Added
+- `Clipper64.SetToleranceUnit` sets all five scale-dependent tolerances from a single length — the distance below which geometry is meaningless to the caller, i.e. one grid unit in integer-Clipper2 terms: `CoordEqTolerance` = `MergeVertexTolerance` = `1e-5` × unit, `NearTopYToleranceCap` = `SmallTriangleTolerance` = `2` × unit, and the area-valued `SplitAreaTolerance` = `2` × unit². `SetToleranceUnit 1.0` reproduces the defaults exactly; for inputs of maximum absolute coordinate `M`, `SetToleranceUnit (M * 1e-6)` reproduces the defaults' behaviour at the coordinate magnitude (~1e6) they are calibrated for. The dimensionless tolerances (`ColinearityTolerance`, `HorizontalAngleTolerance`, `NearTopYToleranceFactor`) are scale-invariant and untouched. Every tolerance comparison in the engine is dimensionally homogeneous, so clipping is scale-equivariant: scaling all input coordinates by `s` together with the unit yields the identically scaled solution — bit-exact for power-of-two `s`, verified by the new `ToleranceUnitTests`. The individual properties remain as overrides (e.g. raising `MergeVertexTolerance` above the seam gap of noisy inputs, or zeroing the sliver culls).
+
 ## [3.0.0] - 2026-06-13
 
 ### Added
@@ -86,6 +91,7 @@ spike it propped up in half-snapped touching-polygon unions.
 ### Changed
 - First release of Port of Clipper2 , ported and adapted from clipper2-ts version 2.0.1-15 to F#
 
+[3.0.1]: https://github.com/goswinr/Klip/compare/3.0.0...3.0.1
 [3.0.0]: https://github.com/goswinr/Klip/compare/2.0.1153...3.0.0
 [2.0.1153]: https://github.com/goswinr/Klip/compare/2.0.1152...2.0.1153
 [2.0.1152]: https://github.com/goswinr/Klip/compare/2.0.1151...2.0.1152
