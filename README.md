@@ -24,8 +24,7 @@ tests for unions of almost-aligned polygons.
 The key difference from Clipper2: Klip uses `float` coordinates throughout instead of `int64`.
 Clipper2 snaps every coordinate onto an integer grid before clipping; Klip removes that step and computes
 directly on the unrounded input. Intersection points are kept at full floating-point precision rather than
-snapped to the grid, so the exact input positions are preserved. See
-[Coordinate precision](#coordinate-precision) for what this entails.
+snapped to the grid, so the exact input positions are preserved.
 
 ## Coordinate precision
 
@@ -167,14 +166,14 @@ tuning:
 - `PreserveColinear`: keep removable colinear vertices in closed solutions.
 - `CoordEqTolerance`: absolute distance below which two coordinates are the same point (default `1e-5`).
 - `MergeVertexTolerance`: max perpendicular distance from a candidate join point to a neighbouring edge for
-  an adjacent-edge join (default `1e-6`). Main knob for merging near-vertical / sloped touching seams; a
+  an adjacent-edge join (default `1e-5`). Main knob for merging near-vertical / sloped touching seams; a
   seam with a gap `g` needs roughly `MergeVertexTolerance > g`. (Near-horizontal seams have a separate join
   pass and need no tuning.)
 - `ColinearityTolerance`: dimensionless angle (`sin θ`) tolerance for cross-product colinearity (default `1e-3`).
 - `HorizontalAngleTolerance`: dimensionless slope tolerance for treating an edge as horizontal (default
   `1e-6`; set `0` for the exact `topY = botY` test).
 - `NearTopYToleranceFactor` / `NearTopYToleranceCap`: tune the near-top join guard window
-  `min(NearTopYToleranceCap, edgeHeight * NearTopYToleranceFactor)` (defaults `2.0` and `1e-4`).
+  `min(NearTopYToleranceCap, edgeHeight * NearTopYToleranceFactor)` (defaults `1e-4` and `2.0`).
 - `SmallTriangleTolerance`: absolute window below which a 3-point solution ring is culled as a sliver
   (default `2.0`, the old integer-grid constant).
 - `SplitAreaTolerance`: absolute area window for the self-intersection split (default `2.0`); being an area
