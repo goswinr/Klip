@@ -142,7 +142,14 @@ outputs. See `README.md` for the full rule set.
 - `Test/FSharp/Tests/Tests1` & `Tests2` — F# ports; reference `Klip.fsproj` directly. They round
   solution coords (`Helpers.roundPaths`) before asserting so they match the integer-snapped fixtures.
 - `Test/FSharp/Benchmark` — BenchmarkDotNet vs Clipper2 2.0.0 (closed boolean ops only):
-  `dotnet run -c Release --project FSharp/Benchmark/Benchmark.csproj -- --join`.
+  `dotnet run -c Release --project FSharp/Benchmark/Benchmark.csproj -- --join`. `Benchmarks.cs` uses a
+  dense random-polygon dataset (`[Params] EdgeCount`), where nearly every scanbeam intersects.
+  `VitestFixtureBenchmarks.cs` instead mirrors the shapes and overlap pairs from
+  `Test/bench/test-data.ts` / `clipping-operations.bench.ts` (the JS vitest bench suite), giving a
+  second, less intersection-dense comparison point against the same Clipper2 NuGet package; run with
+  `dotnet run -c Release --project FSharp/Benchmark/Benchmark.csproj -- --filter '*VitestFixtureBenchmarks*'`
+  (uses BenchmarkDotNet's default adaptive job rather than `FastConfig`'s fixed invocation count, since
+  most of these fixtures are too cheap for a fixed count to produce a stable measurement).
 
 - `Test/Rhino/*.fsx` and `Test/FSharp/Tests/*.fsx` — exploratory `dotnet fsi` scripts (Rhino drawing,
   cross-product-sign comparison); not part of CI.
