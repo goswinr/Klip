@@ -65,6 +65,10 @@ type Clipper64<'Z>() =
     let mutable fillrule = FillRule.EvenOdd
     let mutable actives: ActiveEdge<'Z> = null'()
     let mutable sel: ActiveEdge<'Z> = null'()
+    // True when the preceding buildIntersectList's adjustCurrXAndCopyToSEL scan found the
+    // AEL already sorted by curX at the new scanbeam top (i.e. no intersections), so every
+    // edge's curX is already correct for that top and doTopOfScanbeam can skip recomputing it.
+    let mutable curXValidAtTop = false
     let intersectList = ResizeArray<IntersectNode<'Z>>()
     let outrecList = ResizeArray<OutRec<'Z>>()
     let horzSegList = ResizeArray<HorzSegment<'Z>>()
@@ -122,10 +126,12 @@ type Clipper64<'Z>() =
         abs (ax - bx) > coordEqTol ||
         abs (ay - by) > coordEqTol
 
-    // Per-instance horizontal-edge predicates reading this instance's `horzAngleTol`
-    // (the public `HorizontalAngleTolerance`); the `Clip` primitives take the tolerance explicitly.
+    // ae.dx is ±infinity iff isHorizontalCoords(bot,top) held at the time dx was last
+    // set (see Eng.getDx), and every bot/top mutation on an Active is followed by
+    // Eng.setDx, so checking dx here is equivalent to re-testing the coords but skips
+    // the redundant angle computation on this hot path.
     let isHorizontal (ae: ActiveEdge<'Z>) : bool =
-        Eng.isHorizontalCoords (horzAngleTol, ae.botX, ae.botY, ae.topX, ae.topY)
+        Double.IsInfinity ae.dx
 
 
     // Per-instance open-path predicates reading this instance's `openPathsEnabled` flag;
@@ -828,8 +834,14 @@ type Clipper64<'Z>() =
 
     let checkJoinLeft (ae: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z, checkCurrX: bool) : unit =
         let prev = ae.prevInAEL
-        if isNull' prev
-            || not (Eng.isHotEdge ae)
+        // Cheapest, most-often-failing checks first: a null neighbour, or (when the
+        // caller didn't already establish it) a curX mismatch, are far more common
+        // rejection reasons than the hot/horizontal/open state below.
+        if isNull' prev then
+            ()
+        elif not checkCurrX && isNotEqualTol ae.curX prev.curX then
+            ()
+        elif not (Eng.isHotEdge ae)
             || not (Eng.isHotEdge prev)
             || isHorizontal ae
             || isHorizontal prev
@@ -839,12 +851,7 @@ type Clipper64<'Z>() =
         elif (isNearOrAboveTopY ptY ae || isNearOrAboveTopY ptY prev) && (ae.botY > ptY || prev.botY > ptY) then
                 ()
         else
-            let earlyExit =
-                if checkCurrX then
-                    Eng.distFromLineSqrdGreaterThanTolerance ( mergeVertexToleranceSqrd, ptX, ptY, prev.botX, prev.botY, prev.topX, prev.topY)
-                else
-                    isNotEqualTol ae.curX prev.curX
-            if earlyExit then
+            if checkCurrX && Eng.distFromLineSqrdGreaterThanTolerance ( mergeVertexToleranceSqrd, ptX, ptY, prev.botX, prev.botY, prev.topX, prev.topY) then
                 ()
             elif not (Geo.isColinear (colinTolSqrd, ae.topX, ae.topY, ptX, ptY, prev.topX, prev.topY)) then
                 ()
@@ -860,8 +867,12 @@ type Clipper64<'Z>() =
 
     let checkJoinRight (ae: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z, checkCurrX: bool) : unit =
         let next = ae.nextInAEL
-        if isNull' next
-           || not (Eng.isHotEdge ae)
+        // See checkJoinLeft: cheapest, most-often-failing checks first.
+        if isNull' next then
+            ()
+        elif not checkCurrX && isNotEqualTol ae.curX next.curX then
+            ()
+        elif not (Eng.isHotEdge ae)
            || not (Eng.isHotEdge next)
            || isHorizontal ae
            || isHorizontal next
@@ -871,12 +882,7 @@ type Clipper64<'Z>() =
         elif (isNearOrAboveTopY ptY ae || isNearOrAboveTopY ptY next) && (ae.botY > ptY || next.botY > ptY) then
                 ()
         else
-            let earlyExit =
-                if checkCurrX then
-                    Eng.distFromLineSqrdGreaterThanTolerance ( mergeVertexToleranceSqrd, ptX, ptY, next.botX, next.botY, next.topX, next.topY)
-                else
-                    isNotEqualTol ae.curX next.curX
-            if earlyExit then
+            if checkCurrX && Eng.distFromLineSqrdGreaterThanTolerance ( mergeVertexToleranceSqrd, ptX, ptY, next.botX, next.botY, next.topX, next.topY) then
                 ()
             elif not (Geo.isColinear (colinTolSqrd, ae.topX, ae.topY, ptX, ptY, next.topX, next.topY)) then
                 ()
@@ -1141,15 +1147,23 @@ type Clipper64<'Z>() =
     /// At the bottom of a scanbeam, AEL is already correctly ordered.
     /// But at the top of that scanbeam, edges may have crossed, so their order may need to change.
     /// adjustCurrXAndCopyToSEL copies the AEL links into SEL links and updates every edge’s curX to where it will be at topY:
-    let adjustCurrXAndCopyToSEL (topY: float) : unit =
+    /// Returns true if any adjacent pair in the AEL is inverted (out of curX order) at
+    /// topY, i.e. at least one intersection exists within this scanbeam.
+    let adjustCurrXAndCopyToSEL (topY: float) : bool =
         let mutable ae = actives
         sel <- ae
+        let mutable prevX = Double.NegativeInfinity
+        let mutable inverted = false
         while isNotNull ae do
             ae.prevInSEL <- ae.prevInAEL
             ae.nextInSEL <- ae.nextInAEL
             ae.jump <- ae.nextInSEL
-            ae.curX <- Eng.topX(ae, topY)
+            let x = Eng.topX(ae, topY)
+            ae.curX <- x
+            if x < prevX then inverted <- true
+            prevX <- x
             ae <- ae.nextInAEL
+        inverted
 
     let addNewIntersectNode (ae1: ActiveEdge<'Z>, ae2: ActiveEdge<'Z>, topY: float) : unit =
         let xNode = Eng.getLineIntersectPt (ae1, ae2, topY)
@@ -1187,61 +1201,69 @@ type Clipper64<'Z>() =
         intersectList.Add xNode
 
 
+    // Find all edge intersections in the current scanbeam using a stable merge
+    // sort that ensures only adjacent edges are intersecting. Intersect info is
+    // stored in intersectList ready to be processed in ProcessIntersectList.
+    // Re merge sorts see https://stackoverflow.com/a/46319131/359538
+    let mergeSortIntersections (topY: float) : bool =
+        let mutable left = sel
+        while isNotNull left && isNotNull left.jump do
+            let mutable prevBase: ActiveEdge<'Z> = null'()
+            let mutable leftLoop = left
+            while isNotNull leftLoop && isNotNull leftLoop.jump do
+                let mutable currBase = leftLoop
+                let mutable right = leftLoop.jump
+                let mutable lEnd = right
+                let rEnd = if isNotNull right then right.jump else null'()
+                leftLoop.jump <- rEnd
+
+                while leftLoop =!= lEnd && right =!= rEnd do
+                    if right.curX < leftLoop.curX then
+                        let mutable tmp = right.prevInSEL
+                        let mutable inner = true
+                        while inner do
+                            addNewIntersectNode(tmp, right, topY)
+                            if tmp === leftLoop then
+                                inner <- false
+                            else
+                                tmp <- tmp.prevInSEL
+                        tmp <- right
+                        right <- extractFromSEL tmp
+                        lEnd <- right
+                        if isNotNull leftLoop then
+                            insert1Before2InSEL(tmp, leftLoop)
+                        if leftLoop =!= currBase then
+                            () // continue
+                        else
+                            currBase <- tmp
+                            currBase.jump <- rEnd
+                            if isNull' prevBase then
+                                sel <- currBase
+                            else
+                                prevBase.jump <- currBase
+                    else
+                        leftLoop <- leftLoop.nextInSEL
+
+                prevBase <- currBase
+                leftLoop <- rEnd
+            left <- sel
+
+        intersectList |> Rarr.len > 0
+
     let buildIntersectList (topY: float) : bool =
         if isNull' actives || isNull' actives.nextInAEL then
             false
         else
             // Calculate edge positions at the top of the current scanbeam, and from this
             // we will determine the intersections required to reach these new positions.
-            adjustCurrXAndCopyToSEL topY
-
-            // Find all edge intersections in the current scanbeam using a stable merge
-            // sort that ensures only adjacent edges are intersecting. Intersect info is
-            // stored in intersectList ready to be processed in ProcessIntersectList.
-            // Re merge sorts see https://stackoverflow.com/a/46319131/359538
-            let mutable left = sel
-            while isNotNull left && isNotNull left.jump do
-                let mutable prevBase: ActiveEdge<'Z> = null'()
-                let mutable leftLoop = left
-                while isNotNull leftLoop && isNotNull leftLoop.jump do
-                    let mutable currBase = leftLoop
-                    let mutable right = leftLoop.jump
-                    let mutable lEnd = right
-                    let rEnd = if isNotNull right then right.jump else null'()
-                    leftLoop.jump <- rEnd
-
-                    while leftLoop =!= lEnd && right =!= rEnd do
-                        if right.curX < leftLoop.curX then
-                            let mutable tmp = right.prevInSEL
-                            let mutable inner = true
-                            while inner do
-                                addNewIntersectNode(tmp, right, topY)
-                                if tmp === leftLoop then
-                                    inner <- false
-                                else
-                                    tmp <- tmp.prevInSEL
-                            tmp <- right
-                            right <- extractFromSEL tmp
-                            lEnd <- right
-                            if isNotNull leftLoop then
-                                insert1Before2InSEL(tmp, leftLoop)
-                            if leftLoop =!= currBase then
-                                () // continue
-                            else
-                                currBase <- tmp
-                                currBase.jump <- rEnd
-                                if isNull' prevBase then
-                                    sel <- currBase
-                                else
-                                    prevBase.jump <- currBase
-                        else
-                            leftLoop <- leftLoop.nextInSEL
-
-                    prevBase <- currBase
-                    leftLoop <- rEnd
-                left <- sel
-
-            intersectList |> Rarr.len > 0
+            // If the AEL is already sorted by the new curX values (no adjacent inversions),
+            // no edges intersect within this scanbeam, so skip the merge sort below; every
+            // edge's curX is then already correct for topY, which doTopOfScanbeam reuses.
+            if not (adjustCurrXAndCopyToSEL topY) then
+                curXValidAtTop <- true
+                false
+            else
+                mergeSortIntersections topY
 
 
 
@@ -1508,6 +1530,7 @@ type Clipper64<'Z>() =
         currentLocMin <- 0
         actives <- null'()
         sel <- null'()
+        curXValidAtTop <- false
 
     let insertLocalMinimaIntoAEL (botY: float) : unit =
         let minimaList = minimaList // avoiding access via 'this' in JS
@@ -1631,14 +1654,18 @@ type Clipper64<'Z>() =
 
     let convertHorzSegsToJoins () : unit =
         let horzSegList = horzSegList // avoiding access via 'this' in JS
+        // Compact valid segments to [0, k) in place so the sort below only orders
+        // and compares those, instead of paying for the (often many) invalid ones too.
         let mutable k = 0
         for i = 0 to horzSegList |> Rarr.lastIdx do
             let hs = Rarr.getIdx i horzSegList
             if updateHorzSegment hs then
+                Rarr.setIdx k hs horzSegList
                 k <- k + 1
         if k < 2 then
             ()
         else
+            horzSegList.RemoveRange(k, horzSegList.Count - k)
 
             horzSegList.Sort Eng.horzSegSort
 
@@ -1787,6 +1814,11 @@ type Clipper64<'Z>() =
                         actives
 
     let doTopOfScanbeam (y: float) : unit =
+        // When the preceding buildIntersectList found no inversions, every edge's curX
+        // already equals topX(ae, y) from that scan, so skip recomputing it here (topX is
+        // pure in ae.botX/botY/dx/y, none of which change below for edges not at their top).
+        let curXValid = curXValidAtTop
+        curXValidAtTop <- false
         sel <- null'()
         let mutable ae = actives
         while isNotNull ae do
@@ -1801,8 +1833,10 @@ type Clipper64<'Z>() =
                     if isHorizontal ae then
                         pushHorz ae
                     ae <- ae.nextInAEL
-            else
+            elif not curXValid then
                 ae.curX <- Eng.topX(ae, y)
+                ae <- ae.nextInAEL
+            else
                 ae <- ae.nextInAEL
 
     // ---- Main execute loop ----
@@ -2136,6 +2170,8 @@ type Clipper64<'Z>() =
             let x = Rarr.getIdx 0 xys
             let y = Rarr.getIdx 1 xys
             let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx 0 zs
+            // vertexList holds only each path's head vertex; the rest of the chain
+            // stays reachable through the next/prev links, saving an array slot per vertex.
             let v0 : Vertex<'Z> = { x = x; y = y; z = z; next = null'(); prev = null'(); flags = VertexFlags.None }
             vertexList.Add(v0)
             prevV <- v0
@@ -2149,7 +2185,6 @@ type Clipper64<'Z>() =
                 let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx (j / 2) zs
                 if xyNotEqual(prevV.x, prevV.y, x, y) then  // skip duplicates when building vertex list
                     let currV = { x = x; y = y; z = z; next = null'(); prev = prevV; flags = VertexFlags.None }
-                    vertexList.Add currV
                     prevV.next <- currV
                     prevV <- currV
                 j <- j + 2
