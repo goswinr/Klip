@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The first three digits of the version number (e.g. `3.0.2`) correspond to the original Clipper2 version,
 while the last digits indicate the release number of this F# port.
 
+## [3.0.2] - 2026-07-09
+
+### Changed
+- `Engine`: ported the sweep-loop optimizations from [clipper2-ts#34](https://github.com/countertype/clipper2-ts/pull/34) — skip the intersection merge sort on scanbeams where the active edge list is already sorted by `curX` (no intersections possible), and reuse the edge positions computed during that scan in `doTopOfScanbeam`; `isHorizontal` now reads the already-maintained `ae.dx` (±infinity iff horizontal, see `Eng.getDx`) instead of re-testing the angle from bot/top coordinates; `checkJoinLeft`/`checkJoinRight` check the cheap `curX` mismatch before the hot/horizontal/open edge state; `Eng.boundingBoxesOverlap` early-exits on the first separating axis instead of computing all eight min/max values up front; `convertHorzSegsToJoins` compacts valid horizontal segments to the front of the list before sorting instead of sorting (and re-testing) invalid ones too; `addPathsToVertexList` now stores only each path's head vertex in `vertexList` (the rest of the chain stays reachable through the `next`/`prev` links), cutting one array slot per vertex. No change in clipping results — verified against the full F# (`Tests1`, `Tests2`) and JS (`vitest`) suites. The JS benchmark suite (`Test/bench/clipping-operations.bench.ts`) shows most intersection/difference/xor/union cases 10-40% faster, in line with the upstream PR's reported gains.
+
 ## [3.0.1] - 2026-07-05
 
 ### Added

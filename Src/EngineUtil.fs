@@ -264,16 +264,27 @@ module internal Eng =
         (pt2Y + pt3Y) * (pt2X - pt3X)
 
     /// Fast bounding-box overlap test used before calling segsIntersect.
+    /// Early-exits on the first separating axis found instead of computing all
+    /// eight min/max values up front.
     let inline boundingBoxesOverlap (p1X: float, p1Y: float, p2X: float, p2Y: float, p3X: float, p3Y: float, p4X: float, p4Y: float) : bool =
-        let min1x = Math.Min(p1X, p2X)
-        let max1x = Math.Max(p1X, p2X)
-        let min1y = Math.Min(p1Y, p2Y)
-        let max1y = Math.Max(p1Y, p2Y)
-        let min2x = Math.Min(p3X, p4X)
-        let max2x = Math.Max(p3X, p4X)
-        let min2y = Math.Min(p3Y, p4Y)
-        let max2y = Math.Max(p3Y, p4Y)
-        not (max1x < min2x || max2x < min1x || max1y < min2y || max2y < min1y)
+        let min1x = if p1X < p2X then p1X else p2X
+        let max2x = if p3X > p4X then p3X else p4X
+        if max2x < min1x then
+            false
+        else
+            let max1x = if p1X > p2X then p1X else p2X
+            let min2x = if p3X < p4X then p3X else p4X
+            if max1x < min2x then
+                false
+            else
+                let min1y = if p1Y < p2Y then p1Y else p2Y
+                let max2y = if p3Y > p4Y then p3Y else p4Y
+                if max2y < min1y then
+                    false
+                else
+                    let max1y = if p1Y > p2Y then p1Y else p2Y
+                    let min2y = if p3Y < p4Y then p3Y else p4Y
+                    max1y >= min2y
 
 
     /// Fills the solution Path64 from OutPt doubly linked list.
