@@ -126,7 +126,7 @@ type Clipper64<'Z>() =
         abs (ax - bx) > coordEqTol ||
         abs (ay - by) > coordEqTol
 
-    // ae.dx is ±infinity iff isHorizontalCoords(bot,top) held at the time dx was last
+    // ae.dx is ±infinity if isHorizontalCoords(bot,top) held at the time dx was last
     // set (see Eng.getDx), and every bot/top mutation on an Active is followed by
     // Eng.setDx, so checking dx here is equivalent to re-testing the coords but skips
     // the redundant angle computation on this hot path.
