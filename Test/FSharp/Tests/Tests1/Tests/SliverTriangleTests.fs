@@ -8,7 +8,7 @@ open Klip.Tests.Helpers
 /// (Clipper2 issue https://github.com/AngusJohnson/Clipper2/issues/1067).
 ///
 /// Regression: a NonZero union of a subject triangle with several clip triangles
-/// — two of them slivers with near-zero area — used to produce an output
+/// - two of them slivers with near-zero area - used to produce an output
 /// polygon with total area far exceeding the sum of input areas, i.e. it
 /// invented region outside any input shape.
 [<TestClass>]
@@ -51,7 +51,7 @@ type SliverTriangleTests () =
 
         let resultArea = totalAbsArea result
 
-        // 1% tolerance for rounding — same threshold as the clipper2-ts test.
+        // 1% tolerance for rounding - same threshold as the clipper2-ts test.
         let tolerance = inputArea * 0.01
         Assert.IsTrue(
             resultArea <= inputArea + tolerance,

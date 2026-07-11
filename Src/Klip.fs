@@ -150,10 +150,10 @@ module Klipper =
 
 
     /// Sets the process-wide default for Clipper64.ScanlineArrayThreshold, used by every
-    /// Clipper64 constructed afterwards — including the ones these wrapper functions create
+    /// Clipper64 constructed afterwards - including the ones these wrapper functions create
     /// internally. It is the size at which the engine switches its pending-scanline container
     /// from a small unsorted array (linear scan) to a max-heap plus hash-set (O(log n) operations).
-    /// Performance tuning only — it never changes clipping results.
+    /// Performance tuning only - it never changes clipping results.
     /// Pass 0 to always use the heap+set, or a very large value to always use the array.
     /// The default is 64.
     let setDefaultScanlineArrayThreshold (count: int) : unit =

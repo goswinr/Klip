@@ -6,9 +6,9 @@ open System
 
 /// <summary>
 /// Standalone, per-axis input pre-snapping for <see cref="T:Klip.Paths64`1"/>.
-/// Collects the coordinates of near-vertical and near-horizontal segment runs — consecutive
+/// Collects the coordinates of near-vertical and near-horizontal segment runs - consecutive
 /// vertices within a path whose X (or Y) values differ by no more than the tolerance,
-/// including across the closing last-to-first segment — then clusters the collected X and Y
+/// including across the closing last-to-first segment - then clusters the collected X and Y
 /// values independently per axis and snaps every coordinate in a cluster to the cluster mean,
 /// mutating the path coordinate buffers <b>in place</b>.
 /// </summary>
@@ -83,7 +83,7 @@ module Snap =
     /// Snaps the X and Y coordinates of every path across all the given path collections in
     /// place, treating them as one shared coordinate set (so a vertex in one collection can
     /// snap onto a near-coincident vertex in another, provided both are part of near-axis-aligned
-    /// segment runs within their own paths — see the module remarks). Use this to snap subject
+    /// segment runs within their own paths - see the module remarks). Use this to snap subject
     /// and clip paths together before clipping.
     /// </summary>
     /// <param name="tolerance">Per-axis clustering distance (absolute coordinate units).</param>

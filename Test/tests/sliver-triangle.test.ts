@@ -1,10 +1,10 @@
-// Sliver triangle union bug regression test — mirrors
+// Sliver triangle union bug regression test - mirrors
 // `clipper2-ts/tests/sliver-triangle.test.ts` (originally from
 // https://github.com/AngusJohnson/Clipper2/issues/1067).
 //
 // The bug: a NonZero union of a subject triangle with several clip triangles
 // (two of them slivers with near-zero area) produced an output polygon with
-// total area far exceeding the sum of input areas — i.e. created region
+// total area far exceeding the sum of input areas - i.e. created region
 // outside any input shape.
 
 import { describe, test, expect } from 'vitest';
@@ -58,7 +58,7 @@ describe('Sliver triangle union bug (Issue #1067)', () => {
 
     const resultArea = absSum(result);
 
-    // 1% tolerance for rounding — same as the clipper2-ts test.
+    // 1% tolerance for rounding - same as the clipper2-ts test.
     const tolerance = inputArea * 0.01;
     expect(resultArea).toBeLessThanOrEqual(inputArea + tolerance);
   });

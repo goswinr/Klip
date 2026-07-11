@@ -10,7 +10,7 @@
  * Path64 for the purposes of these tests.
  *
  * Klip's compiled bundle (`_dist/Klip.mjs`) does not surface `Path64.SignedArea`
- * / `pointInPolygon` / PolyTree accessors — they get tree-shaken because the
+ * / `pointInPolygon` / PolyTree accessors - they get tree-shaken because the
  * exposed boolean ops don't reference them. So we re-implement those helpers
  * here using the same shoelace / ray-casting logic.
  */
@@ -42,7 +42,7 @@ export function toKlipPaths(paths: Point64[][]): KlipPaths64 {
   return out;
 }
 
-// Mirrors clipper2-ts's `Clipper.makePath` — builds a single closed path from
+// Mirrors clipper2-ts's `Clipper.makePath` - builds a single closed path from
 // a flat `[x1, y1, x2, y2, ...]` coordinate list.
 export function makePath(xys: number[]): KlipPath64 {
   if (xys.length % 2 !== 0) {
@@ -67,7 +67,7 @@ export function fromKlipPaths(ps: KlipPaths64): Point64[][] {
 
 /**
  * Signed area of a single closed path. Mirrors Klip's `Path64.SignedArea`
- * member (Core.fs:234) — same shoelace formulation.
+ * member (Core.fs:234) - same shoelace formulation.
  */
 export function area(path: KlipPath64): number {
   const cnt = path.xys.length >>> 1;

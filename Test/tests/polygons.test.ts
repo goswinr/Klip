@@ -1,9 +1,9 @@
-// Comprehensive Polygon Clipping Tests — mirrors clipper2-ts/tests/polygons.test.ts
+// Comprehensive Polygon Clipping Tests - mirrors clipper2-ts/tests/polygons.test.ts
 // adapted to Klip's exposed API (booleanOp / booleanOpPolyTree / polyTreeToPaths64).
 //
 // Klip currently doesn't expose open-path clipping through the high-level
 // surface, so test cases that include `SUBJECTS_OPEN` rows have those rows
-// ignored — the closed-subject + clip portion is still validated.
+// ignored - the closed-subject + clip portion is still validated.
 
 import { describe, test, expect } from 'vitest';
 import { Klip } from './klip-api';
@@ -48,7 +48,7 @@ describe('Comprehensive Polygon Clipping Tests', () => {
         // NOTE: Klip runs the clipping engine on UNROUNDED floats (the integer-grid
         // snapping in Geo.jsRound was removed). A handful of complex cases therefore
         // fragment slightly differently from the rounded SOL_COUNT reference, so their
-        // count tolerances are raised here — in the same spirit as the per-mode area
+        // count tolerances are raised here - in the same spirit as the per-mode area
         // tolerances further down. Cases tagged "unrounded" passed at the tighter
         // bound before rounding was removed.
         if (isInList(testNum, [181])) {
@@ -103,7 +103,7 @@ describe('Comprehensive Polygon Clipping Tests', () => {
     expect(allTestCases.length).toBe(195);
   });
 
-  // PolyTree consistency validation — first 50 cases (matches clipper2-ts).
+  // PolyTree consistency validation - first 50 cases (matches clipper2-ts).
   test('should produce consistent results between Paths64 and PolyTree64 output', () => {
     const testCases = allTestCases.slice(0, 50);
 

@@ -103,7 +103,7 @@ fixtures, with an additional F# port under `FSharp/`:
 | -------------------------- | ------------------------------------ | -------------------------------------------------------------------------- |
 | `tests/polygons.test.ts`   | `clipper2-ts/tests/polygons.test.ts` | All 195 Polygons.txt cases + PolyTree consistency, basic ops, edge cases   |
 | `tests/polytree.test.ts`   | `clipper2-ts/tests/polytree.test.ts` | Hole ownership, complex nesting, area validation                           |
-| `tests/sliver-triangle.test.ts` | `clipper2-ts/tests/sliver-triangle.test.ts` | Regression for Clipper2 issue #1067 — NonZero union over sliver triangles |
+| `tests/sliver-triangle.test.ts` | `clipper2-ts/tests/sliver-triangle.test.ts` | Regression for Clipper2 issue #1067 - NonZero union over sliver triangles |
 | `tests/test-data-parser.ts`| `clipper2-ts/tests/test-data-parser.ts` | Self-contained: defines local `ClipType`/`FillRule` enums and `Point64` shape |
 | `tests/test-data/`         | `clipper2-ts/tests/test-data/`       | `Polygons.txt`, `PolytreeHoleOwner.txt`, `PolytreeHoleOwner2.txt` |
 | `FSharp/Tests/Tests1/Tests/SliverTriangleTests.fs` | `clipper2-ts/tests/sliver-triangle.test.ts` | F# port of the issue #1067 regression |
@@ -119,14 +119,16 @@ Klip's engine runs on **unrounded `float` coordinates** ( see the
 [main README](../README.md#coordinate-precision-unrounded-floats)). The `Polygons.txt` reference
 counts/areas come from an integer-snapped clipper, so a handful of complex cases now resolve into a
 slightly different number of (touching) contours. This is absorbed by raised per-case tolerances in
-`tests/polygons.test.ts` — grep for `unrounded` — in the same spirit as the area tolerances that the
+`tests/polygons.test.ts` - grep for `unrounded` - in the same spirit as the area tolerances that the
 file already retunes for engine behavior. Test `181` needed a notably large count
 allowance and is flagged in a comment as worth revisiting.
 
 The F# tests round each solution's coordinates (`Helpers.roundPaths`, real `Math.Round`) before
 asserting on areas/point counts, so they compare against the integer values the fixtures expect.
 
-The tolerance-related behavior is split deliberately:
+The tolerance-related behavior is split deliberately (the individual properties are
+`[<Obsolete>]`-hidden expert overrides - the `Clipper64.Tolerance` property is the supported knob, and test
+files that poke the individual properties carry `#nowarn "44"`):
 
 - `Clipper64.CoordEqTolerance` controls near-equal coordinate comparisons.
 - `Clipper64.ColinearityTolerance` controls cross-product colinearity checks.

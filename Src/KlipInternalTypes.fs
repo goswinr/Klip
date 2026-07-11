@@ -180,7 +180,7 @@ module KlipInternalTypes =
         mutable recursiveSplit: OutRec<'Z> | null
         }
 
-    /// Active Edge Table node — one for each edge currently intersecting the scanbeam.
+    /// Active Edge Table node - one for each edge currently intersecting the scanbeam.
     /// Important: UP and DOWN here are premised on Y-axis positive down
     /// displays, which is the orientation used in Clipper's development.
     and [<NoComparison; NoEquality>] ActiveEdge<'Z> =
@@ -424,7 +424,7 @@ module KlipInternalTypes =
     // Y coordinates and pop them in descending order; they differ only in performance.
 
     /// Max-heap of unique scanline Y coordinates, deduplicated with a HashSet
-    /// (a native `Set` under Fable). O(log n) insert and pop — used for large scanline
+    /// (a native `Set` under Fable). O(log n) insert and pop - used for large scanline
     /// counts; for small counts the linear `ScanlineArray` is faster.
     /// (The heap part mirrors the TS ScanlineHeap; C# keeps a sorted list with O(n) splices instead.)
     type ScanlineHeapSet() =
@@ -478,7 +478,7 @@ module KlipInternalTypes =
             Rarr.len data
 
         /// Inserts y unless it is already pending (set-deduplicated heap push).
-        /// (A set-free dedup-on-pop variant — push duplicates, discard equal roots in Pop —
+        /// (A set-free dedup-on-pop variant - push duplicates, discard equal roots in Pop -
         /// benchmarked slightly faster below ~512 minima where the heap is rarely active,
         /// but equal-to-slower at large sizes and on duplicate-heavy inputs, so the set stays.
         /// See Test/bench/scanline-threshold.mjs.)
@@ -509,7 +509,7 @@ module KlipInternalTypes =
     /// Unsorted array of unique pending scanline Y coordinates.
     /// Insert scans linearly for duplicates; Pop scans linearly for the maximum and
     /// swap-removes it. O(n) per operation, but on a small contiguous float array with
-    /// no hashing or sifting — faster than `ScanlineHeapSet` for small scanline counts.
+    /// no hashing or sifting - faster than `ScanlineHeapSet` for small scanline counts.
     type ScanlineArray() =
         let data = ResizeArray<float>()
 

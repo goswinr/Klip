@@ -1,4 +1,4 @@
-// PolyTree Hierarchical Structure Tests — mirrors clipper2-ts/tests/polytree.test.ts
+// PolyTree Hierarchical Structure Tests - mirrors clipper2-ts/tests/polytree.test.ts
 // adapted to Klip's `booleanOpPolyTree` (returns the tree) + free-function tree helpers.
 
 import { describe, test, expect } from 'vitest';

@@ -46,7 +46,7 @@ type ZCallbackTests () =
 
     [<TestMethod>]
     member _.TwoTrianglesUnionFiresCallbackAtIntersections () =
-        // two overlapping triangles — six intersection points expected
+        // two overlapping triangles - six intersection points expected
         let subject = mkPaths [ pathZ [| 10.0;30.0; 80.0;30.0; 45.0;90.0 |] 7 ]
         let clip    = mkPaths [ pathZ [| 10.0;70.0; 80.0;70.0; 45.0;10.0 |] 9 ]
 
@@ -87,7 +87,7 @@ type ZCallbackTests () =
 
     [<TestMethod>]
     member _.NoIntersectionsMeansNoCallbackInvocations () =
-        // disjoint squares — no edges cross
+        // disjoint squares - no edges cross
         let subject = mkPaths [ pathZ [| 0.0;0.0; 10.0;0.0; 10.0;10.0; 0.0;10.0 |] 5 ]
         let clip    = mkPaths [ pathZ [| 100.0;100.0; 110.0;100.0; 110.0;110.0; 100.0;110.0 |] 5 ]
 

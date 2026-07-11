@@ -58,7 +58,7 @@ type Clipper64<'Z>() =
     let scanlineArr = ScanlineArray()       // used while the pending scanline count is small (at most scanlineArrayThreshold)
     let scanlineHeapSet = ScanlineHeapSet() // used when there are more than scanlineArrayThreshold pending scanlines
     // Switch-over size between the two scanline containers; exposed as ScanlineArrayThreshold.
-    // Performance tuning only — any value produces identical clipping results.
+    // Performance tuning only - any value produces identical clipping results.
     let mutable scanlineArrayThreshold = Eng.defaultScanlineArrayThreshold
 
     let mutable cliptype = ClipType.NoClip
@@ -1341,7 +1341,7 @@ type Clipper64<'Z>() =
         // opposite bound can reach the near-flat (tolerance-horizontal) run at a
         // slightly different exact Y, i.e. a later scanbeam, so the pair can be absent.
         // The inherited fall-through would then walk this edge past the maximum and back
-        // *up* the opposite bound, re-inserting an already-swept scanline — an endless
+        // *up* the opposite bound, re-inserting an already-swept scanline - an endless
         // scanbeam ping-pong. Detect the absent pair up front: the range checks in the
         // loop below stay active (no pass-overs hunting an edge that is not there) and,
         // instead of advancing past the maximum, the edge is parked in the AEL at its
@@ -1498,7 +1498,7 @@ type Clipper64<'Z>() =
                 // tolerance-based isHorizontal the next segment can still classify as
                 // horizontal (a near-flat continuation, e.g. 37 vs 36.999999999). In that
                 // case updateEdgeIntoAEL inserted no scanline for its top, so re-queue it
-                // for horizontal processing — mirroring doTopOfScanbeam — or the edge is
+                // for horizontal processing - mirroring doTopOfScanbeam - or the edge is
                 // orphaned in the AEL with dx = ±infinity and corrupts curX at the next beam.
                 if isHorizontal horz then
                     pushHorz horz
@@ -1676,7 +1676,7 @@ type Clipper64<'Z>() =
                 while scanOn && j <= k - 1 do
                     let hs2 = Rarr.getIdx j horzSegList
                     // Strict-overlap test, deliberately exact (as in Clipper2): segments whose
-                    // X-ranges merely ABUT (zero-length overlap) must NOT join — contours that
+                    // X-ranges merely ABUT (zero-length overlap) must NOT join - contours that
                     // touch at a single point are valid separate outputs (e.g. the two XOR lobes
                     // of overlapping squares), and a point-join would pinch them into a figure-8
                     // and strand the op-walks below without their x-range stopper. A noisy shared
@@ -2279,7 +2279,7 @@ type Clipper64<'Z>() =
     /// array (linear scan per insert/pop) to a max-heap plus hash-set (O(log n) operations).
     /// </summary>
     /// <remarks>
-    /// Performance tuning only — it never changes clipping results. The array container is
+    /// Performance tuning only - it never changes clipping results. The array container is
     /// chosen at the start of each Execute when the local-minima count is at most this
     /// threshold, and is upgraded to the heap mid-sweep if the number of pending scanlines
     /// outgrows the threshold. Set 0 to always use the heap+set, or a very large value to
@@ -2313,19 +2313,20 @@ type Clipper64<'Z>() =
     /// a wide value here does nothing on its own if those other gates reject the join.
     /// Measures a perpendicular-to-line distance, which is a different quantity from
     /// <see cref="CoordEqTolerance"/>'s point coincidence, so the two are independent.
-    /// Default 1e-5 (the <see cref="CoordEqTolerance"/> default). Valid range 0.0 .. 1e9. Per-instance setting.
-    /// Prefer <see cref="SetToleranceUnit"/> — which sets this to 1e-5 × unit together with the
-    /// other scale-dependent tolerances — and set this property individually (afterwards) only
-    /// to widen the seam gate beyond float noise for genuinely gappy inputs.
+    /// Default 1e-5 (the <see cref="CoordEqTolerance"/> default). Valid range 0.0 .. 1e12. Per-instance setting.
+    /// Prefer <see cref="Tolerance"/> - which sets this to the given absolute tolerance
+    /// together with the other scale-dependent tolerances - and set this property individually
+    /// (afterwards) only to widen the seam gate beyond float noise for genuinely gappy inputs.
     /// </remarks>
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - prefer the Tolerance property, which sets all five scale-dependent tolerances coherently from one absolute tolerance.")>]
     member _.MergeVertexTolerance
         with get() : float =
             mergeVertexToleranceSqrd |> Math.Sqrt
         and set(v: float) : unit =
-            if v >= 0.0 && v <= 1e9 then
+            if v >= 0.0 && v <= 1e12 then
                 mergeVertexToleranceSqrd <- v * v
             else
-                invalidArg "MergeVertexTolerance" $"Merge vertex tolerance must be between 0.0 and 1e9. Got {v}."
+                invalidArg "MergeVertexTolerance" $"Merge vertex tolerance must be between 0.0 and 1e12. Got {v}."
 
 
     /// <summary>
@@ -2343,24 +2344,25 @@ type Clipper64<'Z>() =
     /// to the coarse pre-pass <c>Klip.Snap.xAndY</c>, and is independent of
     /// <see cref="MergeVertexTolerance"/> (point coincidence vs perpendicular-to-line distance).
     /// Raise it to tolerate noisier near-duplicate input points.
-    /// Default 1e-5. Valid range 0.0 .. 1e9. Per-instance setting: there is no module-global
-    /// coordinate-equality tolerance — every coincidence test (including the <c>Geo.pointInPolygon</c>
+    /// Default 1e-5. Valid range 0.0 .. 1e12. Per-instance setting: there is no module-global
+    /// coordinate-equality tolerance - every coincidence test (including the <c>Geo.pointInPolygon</c>
     /// containment checks used by the sweep) takes this value as an explicit argument.
-    /// Prefer setting it via <see cref="SetToleranceUnit"/> (1e-5 × unit), which scales all five
-    /// scale-dependent tolerances together from one length.
+    /// Prefer setting it via <see cref="Tolerance"/> (which sets it to the given absolute
+    /// tolerance), setting all five scale-dependent tolerances together from one length.
     /// </remarks>
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - prefer the Tolerance property, which sets all five scale-dependent tolerances coherently from one absolute tolerance.")>]
     member _.CoordEqTolerance
         with get() : float = coordEqTol
         and set(v: float) : unit =
-            if v >= 0.0 && v <= 1e9 then
+            if v >= 0.0 && v <= 1e12 then
                 coordEqTol <- v
             else
-                invalidArg "CoordEqTolerance" $"Coord equality tolerance must be between 0.0 and 1e9. Got {v}."
+                invalidArg "CoordEqTolerance" $"Coord equality tolerance must be between 0.0 and 1e12. Got {v}."
 
     /// <summary>
     /// Edge-height-relative factor of the near-top join guard. The guard suppresses an
     /// adjacent-edge join when the candidate join point sits at, or just below (in scanline-Y
-    /// terms), an edge's top vertex — because a join that close to a maximum is almost always
+    /// terms), an edge's top vertex - because a join that close to a maximum is almost always
     /// a maximum being processed, not a genuine touching-edge merge.
     /// </summary>
     /// <remarks>
@@ -2371,8 +2373,9 @@ type Clipper64<'Z>() =
     /// (joins are allowed right up to the top vertex); raising it makes the engine more
     /// conservative about joining near edge tops.
     /// Default 1e-4. Valid range 0.0 .. 1.0. Per-instance setting.
-    /// Dimensionless, so it is not touched by <see cref="SetToleranceUnit"/> and needs no rescaling.
+    /// Dimensionless, so it is not touched by <see cref="Tolerance"/> and needs no rescaling.
     /// </remarks>
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - dimensionless and scale-free, the default rarely needs adjusting.")>]
     member _.NearTopYToleranceFactor
         with get() : float = nearTopYToleranceFactor
         and set(v: float) : unit =
@@ -2390,19 +2393,21 @@ type Clipper64<'Z>() =
     /// so this caps how wide the edge-height-relative window may grow for very tall edges.
     /// Being an absolute value, it does not auto-scale: at very large coordinate magnitudes a
     /// fixed cap is relatively tiny, while at sub-unit magnitudes the height-relative term
-    /// dominates — a reason to normalize coordinate magnitude before clipping.
+    /// dominates - a reason to normalize coordinate magnitude before clipping.
     /// Setting it to 0 disables the absolute window entirely (the guard then only triggers
     /// strictly above the top vertex).
-    /// Default 2.0. Valid range 0.0 .. 1e9. Per-instance setting.
-    /// Prefer setting it via <see cref="SetToleranceUnit"/> (2 × unit) rather than individually.
+    /// Default 2.0. Valid range 0.0 .. 1e12. Per-instance setting.
+    /// Prefer setting it via <see cref="Tolerance"/> (which sets it to the given absolute
+    /// tolerance) rather than individually.
     /// </remarks>
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - prefer the Tolerance property, which sets all five scale-dependent tolerances coherently from one absolute tolerance.")>]
     member _.NearTopYToleranceCap
         with get() : float = nearTopYToleranceCap
         and set(v: float) : unit =
-            if v >= 0.0 && v <= 1e9 then
+            if v >= 0.0 && v <= 1e12 then
                 nearTopYToleranceCap <- v
             else
-                invalidArg "NearTopYToleranceCap" $"Near-top Y tolerance cap must be between 0.0 and 1e9. Got {v}."
+                invalidArg "NearTopYToleranceCap" $"Near-top Y tolerance cap must be between 0.0 and 1e12. Got {v}."
 
     /// <summary>
     /// Window (absolute, in coordinate units) below which a 3-point solution ring is culled as a
@@ -2415,18 +2420,19 @@ type Clipper64<'Z>() =
     /// it should be scaled to the coordinate magnitude of the input (a triangle spanning 1.9
     /// units is noise at coordinate magnitude ~1e6, but real geometry at sub-unit magnitudes).
     /// Set it to 0 to keep all triangles.
-    /// Default 2.0. Valid range 0.0 .. 1e9. Per-instance setting: carried as an explicit
+    /// Default 2.0. Valid range 0.0 .. 1e12. Per-instance setting: carried as an explicit
     /// argument into <c>buildPath</c> / <c>isValidClosedPath</c>, with no module-global.
-    /// Prefer <see cref="SetToleranceUnit"/> (2 × unit); set this property individually only to
-    /// deviate from that ratio, e.g. 0 to keep every triangle.
+    /// Prefer <see cref="Tolerance"/> (which sets it to the given absolute tolerance);
+    /// set this property individually only to deviate, e.g. 0 to keep every triangle.
     /// </remarks>
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - prefer the Tolerance property, which sets all five scale-dependent tolerances coherently from one absolute tolerance.")>]
     member _.SmallTriangleTolerance
         with get() : float = smallTriangleTol
         and set(v: float) : unit =
-            if v >= 0.0 && v <= 1e9 then
+            if v >= 0.0 && v <= 1e12 then
                 smallTriangleTol <- v
             else
-                invalidArg "SmallTriangleTolerance" $"Small triangle tolerance must be between 0.0 and 1e9. Got {v}."
+                invalidArg "SmallTriangleTolerance" $"Small triangle tolerance must be between 0.0 and 1e12. Got {v}."
 
     /// <summary>
     /// Area window (absolute, in squared coordinate units) used when a self-intersecting ring is
@@ -2439,17 +2445,18 @@ type Clipper64<'Z>() =
     /// scales with the <b>square</b> of the coordinate magnitude, so when adjusting tolerances to
     /// input scale use ~M² rather than ~M (where M is the max absolute coordinate).
     /// Set it to 0 to keep all rings and splits regardless of area.
-    /// Default 2.0. Valid range 0.0 .. 1e18. Per-instance setting.
-    /// Prefer <see cref="SetToleranceUnit"/>, which sets this to 2 × unit² and so handles the
-    /// quadratic scaling for you.
+    /// Default 2.0. Valid range 0.0 .. 1e24. Per-instance setting.
+    /// Prefer <see cref="Tolerance"/>, which sets this to the square of the given
+    /// absolute tolerance and so handles the quadratic scaling for you.
     /// </remarks>
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - prefer the Tolerance property, which sets all five scale-dependent tolerances coherently from one absolute tolerance.")>]
     member _.SplitAreaTolerance
         with get() : float = splitAreaTol
         and set(v: float) : unit =
-            if v >= 0.0 && v <= 1e18 then
+            if v >= 0.0 && v <= 1e24 then
                 splitAreaTol <- v
             else
-                invalidArg "SplitAreaTolerance" $"Split area tolerance must be between 0.0 and 1e18. Got {v}."
+                invalidArg "SplitAreaTolerance" $"Split area tolerance must be between 0.0 and 1e24. Got {v}."
 
 
     /// <summary>
@@ -2459,7 +2466,7 @@ type Clipper64<'Z>() =
     /// <remarks>
     /// Three points are treated as colinear when <c>cross(U,V)^2 &lt;= tolerance^2 * |U|^2 * |V|^2</c>,
     /// which is equivalent to <c>abs(sin(theta)) &lt;= tolerance</c>, where theta is the turn
-    /// angle between the two edge vectors — so this is effectively an <i>angle</i> tolerance and,
+    /// angle between the two edge vectors - so this is effectively an <i>angle</i> tolerance and,
     /// unlike the distance tolerances, it is scale-independent.
     /// Smaller values require straighter edges; larger values merge or clean more
     /// nearly-colinear vertices but may hide very narrow angles. This also lets colinear
@@ -2470,8 +2477,9 @@ type Clipper64<'Z>() =
     /// Raise it to flatten near-straight edges that otherwise leave stray micro-vertices.
     /// Default 1e-3 (0.5 in Clipper2). Valid range 1e-16 .. 1e6. Per-instance setting:
     /// carried as an explicit argument into the colinearity primitives, with no module-global.
-    /// Dimensionless, so it is not touched by <see cref="SetToleranceUnit"/> and needs no rescaling.
+    /// Dimensionless, so it is not touched by <see cref="Tolerance"/> and needs no rescaling.
     /// </remarks>
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - dimensionless and scale-free, the default rarely needs adjusting.")>]
     member _.ColinearityTolerance
         with get() : float =
             Math.Sqrt colinTolSqrd // 0.25 as squared literal in Clipper2
@@ -2486,8 +2494,8 @@ type Clipper64<'Z>() =
     /// horizontal when <c>abs(Δy) &lt;= HorizontalAngleTolerance * abs(Δx)</c>.
     /// </summary>
     /// <remarks>
-    /// This is effectively a slope (sin θ-like) angle from the horizontal, so — like
-    /// <see cref="ColinearityTolerance"/> — it is scale-independent. Unrounded inputs can leave a
+    /// This is effectively a slope (sin θ-like) angle from the horizontal, so - like
+    /// <see cref="ColinearityTolerance"/> - it is scale-independent. Unrounded inputs can leave a
     /// shared near-horizontal edge a hair off exact (e.g. a top edge at 37 vs 37.00000000000001);
     /// the former exact <c>topY = botY</c> test then landed its two ends on distinct scanlines and
     /// could seal an open notch into a phantom hole. It backs both <c>getDx</c> (the ±infinity
@@ -2497,8 +2505,9 @@ type Clipper64<'Z>() =
     /// Default 1e-6. Valid range 0.0 .. 1e-3. Per-instance setting, like
     /// <see cref="CoordEqTolerance"/> and <see cref="ColinearityTolerance"/>: carried as an
     /// explicit argument into the horizontal-edge primitives, with no module-global.
-    /// Dimensionless, so it is not touched by <see cref="SetToleranceUnit"/> and needs no rescaling.
+    /// Dimensionless, so it is not touched by <see cref="Tolerance"/> and needs no rescaling.
     /// </remarks>
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - dimensionless and scale-free, the default rarely needs adjusting.")>]
     member _.HorizontalAngleTolerance
         with get() : float = horzAngleTol
         and set(v: float) : unit =
@@ -2508,40 +2517,27 @@ type Clipper64<'Z>() =
                 invalidArg "HorizontalAngleTolerance" $"Horizontal angle tolerance must be between 0.0 and 1e-3. Got {v}."
 
     /// <summary>
-    /// Sets the five scale-dependent tolerances from a single length: the distance below which
-    /// geometry is meaningless to the caller — the analogue of one grid unit in integer Clipper2.
-    /// <c>SetToleranceUnit 1.0</c> reproduces the engine defaults exactly; for inputs of maximum
-    /// absolute coordinate <c>M</c>, <c>SetToleranceUnit (M * 1e-6)</c> reproduces the defaults'
-    /// behaviour at the coordinate magnitude (~1e6) they are calibrated for.
+    /// The global absolute unit tolerance: the distance (in coordinate units) below which
+    /// points are considered identical and lines touching.
     /// </summary>
     /// <remarks>
-    /// Sets <see cref="CoordEqTolerance"/> and <see cref="MergeVertexTolerance"/> to
-    /// <c>1e-5</c> times the unit, <see cref="NearTopYToleranceCap"/> and
-    /// <see cref="SmallTriangleTolerance"/> to <c>2.0</c> times the unit, and the area-valued
-    /// <see cref="SplitAreaTolerance"/> to <c>2.0</c> times the unit <b>squared</b> (the usual
-    /// mistake when scaling tolerances by hand). The dimensionless tolerances
-    /// (<see cref="ColinearityTolerance"/>, <see cref="HorizontalAngleTolerance"/>,
-    /// <see cref="NearTopYToleranceFactor"/>) are scale-invariant and left untouched.
-    /// Every tolerance comparison in the engine is dimensionally homogeneous, so clipping is
-    /// scale-equivariant: scaling all input coordinates by <c>s</c> and the unit by the same
-    /// <c>s</c> yields the identically scaled solution (bit-exact when <c>s</c> is a power of
-    /// two). One length therefore covers most use cases; the individual properties remain as
-    /// overrides — chiefly raising <see cref="MergeVertexTolerance"/> above the seam gap of
-    /// noisy inputs, or zeroing <see cref="SmallTriangleTolerance"/> /
-    /// <see cref="SplitAreaTolerance"/> to keep micro-slivers.
-    /// Valid range 0.0 .. 5e8 (keeps every derived tolerance inside its own valid range);
-    /// 0.0 makes all five comparisons exact. Per-instance setting.
+    /// Setting it drives all five internal scale-dependent tolerances: the four distance
+    /// tolerances become this value, the area-valued split tolerance its square. The
+    /// dimensionless angle tolerances are unaffected. The getter returns the current
+    /// point-coincidence distance.
+    /// Valid range 0.0 .. 1e12; 0.0 makes the comparisons exact. Per-instance setting.
     /// </remarks>
-    member _.SetToleranceUnit (unitLength: float) : unit =
-        if unitLength >= 0.0 && unitLength <= 5e8 then
-            coordEqTol <- 1e-5 * unitLength
-            let mv = 1e-5 * unitLength
-            mergeVertexToleranceSqrd <- mv * mv
-            nearTopYToleranceCap <- 2.0 * unitLength
-            smallTriangleTol <- 2.0 * unitLength
-            splitAreaTol <- 2.0 * unitLength * unitLength
-        else
-            invalidArg "unitLength" $"Tolerance unit must be between 0.0 and 5e8. Got {unitLength}."
+    member _.Tolerance
+        with get() : float = coordEqTol
+        and set(tolerance: float) : unit =
+            if tolerance >= 0.0 && tolerance <= 1e12 then
+                coordEqTol <- tolerance
+                mergeVertexToleranceSqrd <- tolerance * tolerance
+                nearTopYToleranceCap <- tolerance
+                smallTriangleTol <- tolerance
+                splitAreaTol <- tolerance * tolerance
+            else
+                invalidArg "Tolerance" $"Tolerance must be between 0.0 and 1e12. Got {tolerance}."
 
 
     /// Clipping operations will always return Positive oriented solutions as outer path.

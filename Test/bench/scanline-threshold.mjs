@@ -39,7 +39,7 @@
 // └─────┴────────┴───────────┴───────────┴───────────┴───────────┴───────────┘
 
 // Reading: the array wins ~10–15% on tiny jobs, the heap wins 20–40% on big distinct-Y
-// jobs, crossover ≈ 128 minima — and every hybrid threshold tracks the best pure mode,
+// jobs, crossover ≈ 128 minima - and every hybrid threshold tracks the best pure mode,
 // so the region is flat (32–256) and 64 sits comfortably in it. On duplicate-heavy input
 // the array stays competitive at any size (few distinct pending Ys), so the minima-count
 // heuristic is conservative there, costing only ~2–3%.
@@ -71,9 +71,9 @@ function rotatedSquare(cx, cy, halfDiagonal, angle) {
 }
 
 // k*k squares on a grid with `cell` spacing. With `rotate`, each square is rotated a
-// little differently (deterministic, no PRNG) so no two vertices share a Y coordinate —
+// little differently (deterministic, no PRNG) so no two vertices share a Y coordinate -
 // maximal distinct scanlines, few duplicate insertScanline calls. Without `rotate`, all
-// squares are upright diamonds, so every square in a row shares its three Y values —
+// squares are upright diamonds, so every square in a row shares its three Y values -
 // few distinct scanlines, maximal duplicate insertScanline calls (stresses the heap's
 // dedup strategy).
 function squareGrid(k, cell, offsetX, offsetY, rotate) {

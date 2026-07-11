@@ -25,7 +25,7 @@ let printK (ps:Paths64<_> ) =
     |> Seq.map (_.XYs >> Polyline2D.createDirectly)
     |> printGeo
 
-/// Largest absolute coordinate in the input — a proxy for the geometry's scale.
+/// Largest absolute coordinate in the input - a proxy for the geometry's scale.
 let charSize (ps:Klip.Paths64<unit>) =
     let mutable m = 0.0
     for p in ps do
@@ -45,8 +45,8 @@ let unionK tol (ps:Klip.Paths64<unit>) =
     c.CoordEqTolerance <- tol
     c.MergeVertexTolerance <- tol
     
-    // c.ColinearityTolerance <- 1e-3   // dimensionless (sin θ) — scale-independent default is fine
-    // c.HorizontalAngleTolerance <- 1e-6 // dimensionless slope — scale-independent default is fine
+    // c.ColinearityTolerance <- 1e-3   // dimensionless (sin θ) - scale-independent default is fine
+    // c.HorizontalAngleTolerance <- 1e-6 // dimensionless slope - scale-independent default is fine
     c.AddPaths(ps, PathType.Subject)
     c.Execute(ClipType.Union, FillRule.NonZero) |> fst
 

@@ -28,7 +28,7 @@ module internal Eng =
 
     /// Process-wide default for Clipper64.ScanlineArrayThreshold, read once when a Clipper64
     /// is constructed; set via Klipper.setDefaultScanlineArrayThreshold. Performance tuning
-    /// only — any value produces identical clipping results. (Fable compiles this mutable to a
+    /// only - any value produces identical clipping results. (Fable compiles this mutable to a
     /// getter/setter atom, so reads and writes from other modules work in JS too.)
     let mutable defaultScanlineArrayThreshold = 64
 

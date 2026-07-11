@@ -1,5 +1,8 @@
 namespace Klip.Tests
 
+// the individual tolerance properties are [<Obsolete>]-hidden but exercised here on purpose
+#nowarn "44"
+
 open Microsoft.VisualStudio.TestTools.UnitTesting
 open Klip
 open Klip.Tests.Helpers

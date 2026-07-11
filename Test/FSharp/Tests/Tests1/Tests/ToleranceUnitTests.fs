@@ -1,13 +1,16 @@
 namespace Klip.Tests
 
+// the individual tolerance properties are [<Obsolete>]-hidden but exercised here on purpose
+#nowarn "44"
+
 open System
 open Microsoft.VisualStudio.TestTools.UnitTesting
 open Klip
 open Klip.Tests.Helpers
 
-/// Tests for `Clipper64.SetToleranceUnit`: one length drives the five scale-dependent
-/// tolerances, and clipping is scale-equivariant — scaling all input coordinates by `s`
-/// together with `SetToleranceUnit s` yields the identically scaled solution
+/// Tests for the `Clipper64.Tolerance` property: one absolute tolerance drives the five
+/// scale-dependent tolerances, and clipping is scale-equivariant - scaling all input
+/// coordinates by `s` together with the tolerance yields the identically scaled solution
 /// (bit-exact when `s` is a power of two).
 [<TestClass>]
 type ToleranceUnitTests () =
@@ -40,11 +43,11 @@ type ToleranceUnitTests () =
     let scalePaths (s: float) (ps: Paths64<unit>) : Paths64<unit> =
         Paths64.mapXY (fun v -> v * s) ps
 
-    /// NonZero union via Clipper64, with an optional tolerance unit set before adding paths.
-    let unionWithUnit (u: float option) (subj: Paths64<unit>) (clp: Paths64<unit>) : Paths64<unit> =
+    /// NonZero union via Clipper64, with an optional absolute tolerance set before adding paths.
+    let unionWithTolerance (t: float option) (subj: Paths64<unit>) (clp: Paths64<unit>) : Paths64<unit> =
         let c = Clipper64<unit>()
-        match u with
-        | Some u -> c.SetToleranceUnit u
+        match t with
+        | Some t -> c.Tolerance <- t
         | None -> ()
         c.AddSubject subj
         c.AddClip clp
@@ -52,21 +55,21 @@ type ToleranceUnitTests () =
         closed
 
     [<TestMethod>]
-    member _.UnitOneReproducesTheDefaults () =
+    member _.ToleranceSetsAllFiveScaleDependentTolerances () =
         let c = Clipper64<unit>()
-        // poke every scale-dependent tolerance away from its default first
+        // poke every scale-dependent tolerance away first
         c.CoordEqTolerance <- 123.0
         c.MergeVertexTolerance <- 123.0
         c.NearTopYToleranceCap <- 123.0
         c.SmallTriangleTolerance <- 123.0
         c.SplitAreaTolerance <- 123.0
-        c.SetToleranceUnit 1.0
-        let d = Clipper64<unit>()
-        Assert.AreEqual(d.CoordEqTolerance, c.CoordEqTolerance)
-        Assert.AreEqual(d.MergeVertexTolerance, c.MergeVertexTolerance)
-        Assert.AreEqual(d.NearTopYToleranceCap, c.NearTopYToleranceCap)
-        Assert.AreEqual(d.SmallTriangleTolerance, c.SmallTriangleTolerance)
-        Assert.AreEqual(d.SplitAreaTolerance, c.SplitAreaTolerance)
+        c.Tolerance <- 0.25
+        Assert.AreEqual(0.25, c.Tolerance)
+        Assert.AreEqual(0.25, c.CoordEqTolerance)
+        Assert.AreEqual(0.25, c.MergeVertexTolerance)
+        Assert.AreEqual(0.25, c.NearTopYToleranceCap)
+        Assert.AreEqual(0.25, c.SmallTriangleTolerance)
+        Assert.AreEqual(0.0625, c.SplitAreaTolerance) // the tolerance squared
 
     [<TestMethod>]
     member _.DimensionlessTolerancesAreUntouched () =
@@ -74,27 +77,31 @@ type ToleranceUnitTests () =
         c.ColinearityTolerance <- 0.5
         c.HorizontalAngleTolerance <- 1e-4
         c.NearTopYToleranceFactor <- 0.5
-        c.SetToleranceUnit 42.0
+        c.Tolerance <- 42.0
         Assert.AreEqual(0.5, c.ColinearityTolerance)
         Assert.AreEqual(1e-4, c.HorizontalAngleTolerance)
         Assert.AreEqual(0.5, c.NearTopYToleranceFactor)
 
     [<TestMethod>]
-    member _.UnitOutsideValidRangeRaisesArgumentException () =
+    member _.ToleranceOutsideValidRangeRaisesArgumentException () =
         let c = Clipper64<unit>()
         Assert.ThrowsException<ArgumentException>(
-            Action(fun () -> c.SetToleranceUnit(-1.0))) |> ignore
+            Action(fun () -> c.Tolerance <- -1.0)) |> ignore
         Assert.ThrowsException<ArgumentException>(
-            Action(fun () -> c.SetToleranceUnit(1e9))) |> ignore
+            Action(fun () -> c.Tolerance <- 2e12)) |> ignore
+        // both ends of the valid range are accepted
+        c.Tolerance <- 0.0
+        c.Tolerance <- 1e12
 
     [<TestMethod>]
-    member _.ScaledInputWithScaledUnitGivesBitExactScaledOutput () =
+    member _.ScaledInputWithScaledToleranceGivesBitExactScaledOutput () =
         // Power-of-two scale: multiplying floats by s only shifts exponents, so both the
         // scaled inputs and the scaled tolerances are exact and every branch in the engine
-        // decides identically — the solution must match coordinate-for-coordinate, bitwise.
+        // decides identically - the solution must match coordinate-for-coordinate, bitwise.
         let s = 1.0 / 16777216.0 // 2^-24, brings the fixture to sub-unit magnitude ~3
-        let baseline = unionWithUnit None (subject ()) (clip ())
-        let scaled = unionWithUnit (Some s) (scalePaths s (subject ())) (scalePaths s (clip ()))
+        let t0 = 1.0 // geometry below one unit is noise at the fixture's ~5e7 magnitude
+        let baseline = unionWithTolerance (Some t0) (subject ()) (clip ())
+        let scaled = unionWithTolerance (Some (t0 * s)) (scalePaths s (subject ())) (scalePaths s (clip ()))
         Assert.IsTrue(baseline.Count > 0, "baseline union should produce output")
         Assert.AreEqual(baseline.Count, scaled.Count, "path count")
         for i in 0 .. baseline.Count - 1 do
@@ -103,25 +110,26 @@ type ToleranceUnitTests () =
                 Assert.AreEqual(baseline[i].GetX j * s, scaled[i].GetX j, sprintf "x of point %d in path %d" j i)
                 Assert.AreEqual(baseline[i].GetY j * s, scaled[i].GetY j, sprintf "y of point %d in path %d" j i)
 
-        // Sanity: with the *default* (unscaled) tolerances the same tiny input is mangled —
-        // the whole fixture spans ~0.23 units, below the 2.0 sliver-cull window — so the
-        // unit is doing real work above, not vacuously passing.
-        let mangled = unionWithUnit None (scalePaths s (subject ())) (scalePaths s (clip ()))
+        // Sanity: with the *default* (unscaled) tolerances the same tiny input is mangled -
+        // the whole fixture spans ~0.23 units, below the 2.0 sliver-cull window - so the
+        // tolerance is doing real work above, not vacuously passing.
+        let mangled = unionWithTolerance None (scalePaths s (subject ())) (scalePaths s (clip ()))
         let sameShape =
             mangled.Count = baseline.Count
             && abs (totalAbsArea mangled - totalAbsArea baseline * s * s) <= totalAbsArea baseline * s * s * 1e-9
         Assert.IsFalse(sameShape, "default tolerances at tiny scale should not reproduce the correctly-scaled result")
 
     [<TestMethod>]
-    member _.ScaledInputWithScaledUnitGivesScaledOutput_DecimalScale () =
+    member _.ScaledInputWithScaledToleranceGivesScaledOutput_DecimalScale () =
         // Decimal scale: scaling the inputs itself rounds (half an ulp per coordinate), so
         // equivariance holds to float noise rather than bit-exactly. Benign fixture with no
         // knife-edge coincidences; compare within a tolerance far below any real divergence.
         let subj = paths [ path [| 0.0;0.0; 100.0;0.0; 100.0;100.0; 0.0;100.0 |] ]
         let clp = paths [ path [| 50.0;-10.0; 160.0;40.0; 70.0;120.0 |] ]
         let s = 1e-7
-        let baseline = unionWithUnit None subj clp
-        let scaled = unionWithUnit (Some s) (scalePaths s subj) (scalePaths s clp)
+        let t0 = 1e-5
+        let baseline = unionWithTolerance (Some t0) subj clp
+        let scaled = unionWithTolerance (Some (t0 * s)) (scalePaths s subj) (scalePaths s clp)
         Assert.IsTrue(baseline.Count > 0, "baseline union should produce output")
         Assert.AreEqual(baseline.Count, scaled.Count, "path count")
         for i in 0 .. baseline.Count - 1 do

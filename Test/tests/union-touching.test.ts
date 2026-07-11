@@ -1,4 +1,4 @@
-// Touching-polygon union regression tests — mirror the F# BooleanTests
+// Touching-polygon union regression tests - mirror the F# BooleanTests
 // `UnionTwoTouchingPolygons*` cases (Klip/Test/FSharp/Tests/Tests1/Tests/BooleanTests.fs).
 //
 // Two polygons that share an edge along a line carrying floating-point noise

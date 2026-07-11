@@ -1,5 +1,8 @@
 namespace Klip.Tests
 
+// the individual tolerance properties are [<Obsolete>]-hidden but exercised here on purpose
+#nowarn "44"
+
 open Microsoft.VisualStudio.TestTools.UnitTesting
 open Klip
 open Klip.Tests.Helpers
@@ -191,7 +194,7 @@ type BooleanTests () =
         let subj = paths [ square 0.0 0.0 10.0 ]
         let clip = paths [ square 5.0 5.0 10.0 ]
         let solution = Klipper.xor clip subj |> roundPaths
-        // expected: two L-shapes (or one polygon with hole) — total area = 75 + 75 = 150
+        // expected: two L-shapes (or one polygon with hole) - total area = 75 + 75 = 150
         let area = totalAbsArea solution
         Assert.IsTrue(abs (area - 150.0) < 0.5,
             sprintf "expected xor area 150, got %f" area)

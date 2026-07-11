@@ -363,7 +363,7 @@ module internal Geo =
     /// an angle tolerance: points are colinear when the turn is within the configured tolerance. Using
     /// the edge-length scale (rather than the former `|a*b| + |c*d|`) keeps the test
     /// meaningful at any coordinate scale AND when both products are individually near
-    /// zero — e.g. a near-horizontal or near-vertical spike, where a product-relative
+    /// zero - e.g. a near-horizontal or near-vertical spike, where a product-relative
     /// tolerance collapses to ~0 and the spike vertex is never recognized as colinear.
     /// This also lets colinear cleanup detect and close nearly 180-degree U-turn spikes.
     ///
@@ -478,7 +478,7 @@ module internal Geo =
                             while i < endIdx && getY i > ptY do i <- i + 1
 
                         if i = endIdx then
-                            skip <- true  // continue — wrap around
+                            skip <- true  // continue - wrap around
                         else
                             let currX = getX i
                             let currY = getY i
@@ -500,7 +500,7 @@ module internal Geo =
 
                             if loopOn && not skip then
                                 if ptX < currX && ptX < prevX then
-                                    ()  // edge entirely to the right — ignore
+                                    ()  // edge entirely to the right - ignore
                                 elif ptX > prevX && ptX > currX then
                                     valToggle <- 1 - valToggle
                                 else
