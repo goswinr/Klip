@@ -205,24 +205,24 @@ dotnet test Test/FSharp/Tests/Tests2/TestsZ.fsproj
 For JavaScript:
 
 ```bash
-cd Test
+cd Test/TypeScript
 dotnet tool restore
 npm install
 npm run clean   # clean previous Fable output
 npm run build   # F# → JavaScript via Fable, then vite build
 npm test        # vitest --run, against the compiled bundle
 npm run buildts # optional: F# → TypeScript via Fable, then tsc and vite build
-cd ..
+cd ../..
 ```
 
-The JavaScript bundle ends up in `Test/_dist/Klip.mjs` and is what the Vitest suite imports - rebuild
+The JavaScript bundle ends up in `Test/TypeScript/_dist/Klip.mjs` and is what the Vitest suite imports - rebuild
 before testing after any F# source change. The TypeScript/Fable build emits a separate bundle under
-`Test/_distTS/Klip.mjs`.
+`Test/TypeScript/_distTS/Klip.mjs`.
 
 ## Performance
 
 On .NET, the local benchmark harness is roughly on par with Clipper2 C#. In JavaScript, the latest local
 run is about the same as `clipper2-ts` and about 80% slower than `clipper2-wasm` on average.
 
-See [`Test/bench/README.md`](https://github.com/goswinr/Klip/blob/main/Test/bench/README.md)
+See [`Test/TypeScript/bench/README.md`](https://github.com/goswinr/Klip/blob/main/Test/TypeScript/bench/README.md)
 and [`Test/README.md`](https://github.com/goswinr/Klip/blob/main/Test/README.md).

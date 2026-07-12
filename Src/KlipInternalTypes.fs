@@ -484,7 +484,7 @@ module KlipInternalTypes =
         /// (A set-free dedup-on-pop variant - push duplicates, discard equal roots in Pop -
         /// benchmarked slightly faster below ~512 minima where the heap is rarely active,
         /// but equal-to-slower at large sizes and on duplicate-heavy inputs, so the set stays.
-        /// See Test/bench/scanline-threshold.mjs.)
+        /// See Test/TypeScript/bench/scanline-threshold.mjs.)
         member _.Insert(y: float) : unit =
             if set.Add y then // Add returns false on duplicates: one hash lookup instead of Contains + Add
                 data.Add y

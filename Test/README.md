@@ -18,20 +18,20 @@ Tests run against the **already-compiled** JS output in `_dist/Klip.mjs`. If you
 change the F# sources, rebuild first:
 
 ```bash
-cd Test
+cd Test/TypeScript
 dotnet tool restore
 npm install     # install vitest and dependencies
-cd ..
+cd ../..
 ```
 
 Then run the tests with:
 
 ```bash
-cd Test
+cd Test/TypeScript
 npm run clean   # clean previous Fable output
 npm run build   # dotnet fable + vite build
 npm test        # vitest --run
-cd ..
+cd ../..
 ```
 
 Vitest config: `vitest.config.ts` - picks up `tests/**/*.{test,spec}.ts`,
@@ -40,13 +40,13 @@ excludes `_ts/fable_modules`.
 
 ## Running JS Benchmarks
 
-See `Test/bench/README.md` for details on the JS benchmarks.
+See `TypeScript/bench/README.md` for details on the JS benchmarks.
 
 ```bash
-cd Test
+cd Test/TypeScript
 npm run build   # rebuild _dist/Klip.mjs if F# sources changed
 npm run bench    # vitest bench --run
-cd ..
+cd ../..
 ```
 
 Compiled to JS with Fable `Klip` is slightly faster than `clipper2-ts`, but still almost 2x slower than `clipper2-wasm`.

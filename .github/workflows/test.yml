@@ -33,13 +33,13 @@ jobs:
           node-version: '24.x'
 
       - name: Clean Install npm dependencies
-        working-directory: ./Test
+        working-directory: ./Test/TypeScript
         run: npm ci
 
       - name: Build JS tests
-        working-directory: ./Test
+        working-directory: ./Test/TypeScript
         run: npm run build
 
       - name: Run tests JS
-        working-directory: ./Test
+        working-directory: ./Test/TypeScript
         run: npm test

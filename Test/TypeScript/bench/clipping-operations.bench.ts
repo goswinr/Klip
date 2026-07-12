@@ -42,7 +42,7 @@ type RhinoPathsFixture = readonly (readonly (readonly JsonPoint[])[])[];
 
 function loadRhinoPaths(scale: number): Paths64 {
   const fixture = JSON.parse(
-    readFileSync(new URL('../Rhino/polysXY.json', import.meta.url), 'utf8'),
+    readFileSync(new URL('../../Rhino/polysXY.json', import.meta.url), 'utf8'),
   ) as RhinoPathsFixture;
   const paths: Paths64 = [];
 

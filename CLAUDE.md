@@ -17,20 +17,20 @@ Minkowski sums, triangulation, or int64 API.
 
 ```bash
 dotnet build
-cd Test
+dotnet test Test/FSharp/Tests/Tests1/Tests1.fsproj   # boolean ops, open paths, PolyTree
+dotnet test Test/FSharp/Tests/Tests2/TestsZ.fsproj   # Z-callback metadata wiring
+cd Test/TypeScript
 dotnet tool restore
 npm install
 npm run clean   # clean previous Fable output
 npm run build  # dotnet fable → _js, then vite build → _dist/Klip.mjs
-dotnet test FSharp/Tests/Tests1/Tests1.fsproj   # boolean ops, open paths, PolyTree
-dotnet test FSharp/Tests/Tests2/TestsZ.fsproj   # Z-callback metadata wiring
 npm test # vitest --run  (imports the compiled _dist/Klip.mjs)
-cd ..
+cd ../..
 ```
 
-Run a single vitest file/case from `Test/`: `npx vitest run tests/polygons.test.ts -t "name"`.
+Run a single vitest file/case from `Test/TypeScript/`: `npx vitest run tests/polygons.test.ts -t "name"`.
 
-The Fable toolchain is pinned in `Test/dotnet-tools.json`; `npm install` runs
+The Fable toolchain is pinned in `Test/TypeScript/dotnet-tools.json`; `npm install` runs
 `dotnet tool restore` via the `preinstall` script.
 
 JS tests run against the
@@ -62,7 +62,7 @@ top-to-bottom; order in `Klip.fsproj` matters):
    pending-scanline containers `ScanlineArray` (linear scan, small jobs) / `ScanlineHeapSet`
    (max-heap + dedup set, large jobs; switch-over size is `Clipper64.ScanlineArrayThreshold`,
    default via `Klipper.setDefaultScanlineArrayThreshold`, benchmarked by
-   `Test/bench/scanline-threshold.mjs`), plus the `VertexFlags` / `JoinWith` / `HorzPosition`
+   `Test/TypeScript/bench/scanline-threshold.mjs`), plus the `VertexFlags` / `JoinWith` / `HorzPosition`
    flag types). Types only - comparisons here are exact ordering on scanline Y.
 
 4. **`EngineUtil.fs`** - `module internal Eng`: the stateless engine helpers split out of the clipping
@@ -140,7 +140,7 @@ outputs. See `README.md` for the full rule set.
 
 ## Tests layout
 
-- `Test/tests/*.test.ts` - vitest suite . `tests/adapter.ts` converts between
+- `Test/TypeScript/tests/*.test.ts` - vitest suite . `tests/adapter.ts` converts between
   clipper2-ts `{x,y}[]` fixtures and Klip's flat-buffer `Path64` shape, and re-implements `area` /
   `pointInPolygon` / PolyTree helpers locally because the compiled bundle tree-shakes those members
   off (only the exported boolean ops survive). `tests/test-data/` holds the upstream `.txt` fixtures.
@@ -154,7 +154,7 @@ outputs. See `README.md` for the full rule set.
   `dotnet run -c Release --project FSharp/Benchmark/Benchmark.csproj -- --join`. `Benchmarks.cs` uses a
   dense random-polygon dataset (`[Params] EdgeCount`), where nearly every scanbeam intersects.
   `VitestFixtureBenchmarks.cs` instead mirrors the shapes and overlap pairs from
-  `Test/bench/test-data.ts` / `clipping-operations.bench.ts` (the JS vitest bench suite), giving a
+  `Test/TypeScript/bench/test-data.ts` / `clipping-operations.bench.ts` (the JS vitest bench suite), giving a
   second, less intersection-dense comparison point against the same Clipper2 NuGet package; run with
   `dotnet run -c Release --project FSharp/Benchmark/Benchmark.csproj -- --filter '*VitestFixtureBenchmarks*'`
   (uses BenchmarkDotNet's default adaptive job rather than `FastConfig`'s fixed invocation count, since

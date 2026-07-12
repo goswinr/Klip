@@ -38,12 +38,12 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   } >> "$CLAUDE_ENV_FILE"
 fi
 
-# 2. Restore the local Fable tool (manifest lives at Test/dotnet-tools.json).
-dotnet tool restore --tool-manifest "$PROJECT_DIR/Test/dotnet-tools.json"
+# 2. Restore the local Fable tool (manifest lives at Test/TypeScript/dotnet-tools.json).
+dotnet tool restore --tool-manifest "$PROJECT_DIR/Test/TypeScript/dotnet-tools.json"
 
 # 3. Install the JS deps for the vitest harness (npm's preinstall re-runs tool restore).
-if [ -f "$PROJECT_DIR/Test/package.json" ]; then
-  ( cd "$PROJECT_DIR/Test" && npm install )
+if [ -f "$PROJECT_DIR/Test/TypeScript/package.json" ]; then
+  ( cd "$PROJECT_DIR/Test/TypeScript" && npm install )
 fi
 
 echo "SessionStart hook complete: $(dotnet --version) SDK ready."
