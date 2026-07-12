@@ -63,7 +63,7 @@ type BooleanTests () =
 
     [<TestMethod>]
     member _.UnionTwoTouchingPolygonsSharedVertexGivesOnePolygon () =
-        // From Test/Rhino/unionManyRh.fsx: an arch with an open notch in its top edge,
+        // From Test/Scripts/rhino/interactive-union.fsx (formerly unionManyRh.fsx): an arch with an open notch in its top edge,
         // plus a small square sitting on the left tine. The y=37.0 / y=37.00000000000001
         // float noise (~1e-14 apart) used to land on two distinct exact scanlines, sealing
         // the open notch into a phantom hole (2 contours). The tolerance-based isHorizontal
@@ -111,7 +111,7 @@ type BooleanTests () =
 
     [<TestMethod; Timeout(10000)>] // a regression hangs the sweep, so fail on timeout instead
     member _.UnionSelfNearHorizontalBottomWithExactMidpointMinimumTerminates () =
-        // Regression for the doHorizontal scanbeam ping-pong (path 70 of Test/Rhino/polysXY.json,
+        // Regression for the doHorizontal scanbeam ping-pong (path 70 of Test/Scripts/data/polysXY.json,
         // minimized): a rectangle whose bottom edge E->A->B is near-horizontal (within
         // HorizontalAngleTolerance) but carries ~1e-6 Y-noise with the midpoint A as the EXACT
         // local maximum of the sweep, so the two bounds reach the shared near-flat run on
@@ -138,7 +138,7 @@ type BooleanTests () =
     member _.UnionSelfNearHorizontalExtremaDisjointRingsStaySeparate () =
         // Companion to UnionSelfNearHorizontalBottomWithExactMidpointMinimumTerminates (and the
         // vitest "disjoint near-horizontal extrema" case): two disjoint rings from
-        // Test/Rhino/polysXY.json whose near-flat runs all carry sub-tolerance Y-noise, so both
+        // Test/Scripts/data/polysXY.json whose near-flat runs all carry sub-tolerance Y-noise, so both
         // rings exercise the parked-edge maxima handling within one sweep. They must come back
         // as two separate contours with their input areas intact (no merge, no loss).
         let subj = paths [ path [| 31.68114899807879;  -3.1776702435233077
@@ -415,7 +415,8 @@ type BooleanTests () =
 
     [<TestMethod>]
     member _.UnionHalfSnappedTouchingPolygonsRemovesHorizontalSpikeWithoutSnap () =
-        // From Test/Union-Touching/test-on-one_large.fsx. A 1e-14 deviation at the
+        // From the removed touching-union script test-on-one_large.fsx (see git history
+        // of Test/Union-Touching/, now Test/Scripts/). A 1e-14 deviation at the
         // shared top-left vertex leaves a horizontal U-turn in the materialized output:
         // (-40,50) -> (-62,50) -> (-50,50). Clipper64 should remove that spike without
         // requiring the Snap pre-pass.

@@ -1,5 +1,5 @@
 ﻿#r "nuget: Clipper2, 2.0.0"
-#r "D:/Git/_Euclid_/Klip/bin/Release/netstandard2.0/Klip.dll"
+#r "../../../bin/Release/netstandard2.0/Klip.dll"
 
 open System
 open System.IO
@@ -11,7 +11,7 @@ type XY = { x: float; y: float }
 
 do
     let xy: XY[][][] =
-        "D:/Git/_Euclid_/Klip/Test/Rhino/polysXY.json"
+        __SOURCE_DIRECTORY__ + "/../data/polysXY.json"
         |> File.ReadAllText
         |> JsonSerializer.Deserialize<_>
 

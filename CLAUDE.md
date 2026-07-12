@@ -160,8 +160,9 @@ outputs. See `README.md` for the full rule set.
   (uses BenchmarkDotNet's default adaptive job rather than `FastConfig`'s fixed invocation count, since
   most of these fixtures are too cheap for a fixed count to produce a stable measurement).
 
-- `Test/Rhino/*.fsx` and `Test/FSharp/Tests/*.fsx` - exploratory `dotnet fsi` scripts (Rhino drawing,
-  cross-product-sign comparison); not part of CI.
+- `Test/Scripts/` and `Test/FSharp/Tests/*.fsx` - exploratory `dotnet fsi` scripts; not part of CI.
+  `Test/Scripts/console/` runs standalone, `Test/Scripts/rhino/` needs Rhino 8 running,
+  `Test/Scripts/data/` holds their fixtures (see `Test/Scripts/README.md`).
 
 ## Conventions
 

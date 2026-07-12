@@ -1,12 +1,12 @@
-﻿#r "D:/Git/_Euclid_/Klip/bin/Release/netstandard2.0/Klip.dll"
+﻿#r "../../../bin/Release/netstandard2.0/Klip.dll"
 #r "nuget: Fesher, 0.5.0"
 #r "nuget: Euclid,0.40.0"
+#r "nuget: Clipper2, 2.0.0"
+
 open System
 open Fesher
 open Euclid
 open Klip
-
-#nowarn 3370 // incr ref
 
 let print (ps : seq<Polyline2D> ) =
     Printfn.gray  "ResizeArray ["
@@ -22,9 +22,15 @@ let printK (ps : Paths64<_> ) =
 
 let unionK (scale:float)  (ps:Klip.Paths64<unit>) =
     let c = Clipper64()
-    // c.MergeVertexTolerance <-?
 
-    // CoordEqTolerance is an absolute distance. This sweep offsets touching
+    // c.MergeVertexTolerance <- 1e-6  // should be smaller than 1e-5
+    // c.ColinearityTolerance <- 1e-2 // at 1e-4 or bigger
+    // c.CoordEqTolerance <-  1e-3 * scale // should be bigger than 1e-4,  need scale factor
+
+    // c.NearTopYToleranceCap <- 1e-3
+    // c.NearTopYToleranceFactor <- 1e-6
+    //
+        // CoordEqTolerance is an absolute distance. This sweep offsets touching
     // vertices by up to 1e-3 before scaling, so use a scaled tolerance just
     // above that offset while keeping the engine's default floor for tiny cases.
     let coordEqTol = scale * 1.1e-3
@@ -39,10 +45,20 @@ let unionK (scale:float)  (ps:Klip.Paths64<unit>) =
     c.AddPaths(ps, PathType.Subject)
     c.Execute(ClipType.Union, FillRule.NonZero) |> fst
 
+let unionC (precision:int) (ps:Clipper2Lib.PathsD) =
+    Clipper2Lib.Clipper.Union(ps, null,  Clipper2Lib.FillRule.EvenOdd, precision = precision)
+
+
+let areaOkC (a:Clipper2Lib.PathsD)  (b:Clipper2Lib.PathsD) =
+    let aa = a |> Seq.sumBy (Clipper2Lib.Clipper.Area>>abs)
+    let bb = b |> Seq.sumBy (Clipper2Lib.Clipper.Area>>abs)
+    abs(aa-bb) < (max aa bb) * 0.01 // within 1 %
+
 let areaOkK (a:Klip.Paths64<_>)  (b:Klip.Paths64<_>) =
     let aa = a |> Seq.sumBy Klip.Path64.absArea
     let bb = b |> Seq.sumBy Klip.Path64.absArea
     abs(aa-bb) < (max aa bb) * 0.01 // within 1 %
+
 
 let failCount = ref 0
 let successCount = ref 0
@@ -55,7 +71,7 @@ let logK (res: Klip.Paths64<_>, shift, moveX:float, moveY:float, scale:float, cl
         // print xps
     else
         let r0 = res[0]
-        if r0.PointCount = 8 && res.Count = 1 && areaOkK res pathK then
+        if r0.PointCount = 8 && areaOkK res pathK then
             incr successCount
             // Printfn.green $"OK at sc {sc}, rot {rotm.InDegrees}:"
             // print ps
@@ -69,6 +85,29 @@ let logK (res: Klip.Paths64<_>, shift, moveX:float, moveY:float, scale:float, cl
             incr thisScaleFailCount
             if !thisScaleFailCount < 3 then
                 Printfn.red $"  ERROR: BAD COUNT: {r0.PointCount} transformAndRun ({shift}, {moveX}, {moveY}, {scale}, {clipperPrec}, {rot})"
+                //print xps
+
+let logC (res: Clipper2Lib.PathsD, shift, moveX:float, moveY:float, scale:float, clipperPrec:int, rot:float, pathC: Clipper2Lib.PathsD) =
+    if res.Count = 0 then
+        incr failCount
+        Printfn.purple $"  ERROR: Empty Result at scale {scale}, rotation {rot} moveX {moveX}, moveY {moveY}"
+        // print xps
+    else
+        let r0 = res[0]
+        if r0.Count = 8 && areaOkC res pathC then
+            incr successCount
+            // Printfn.green $"OK at sc {sc}, rot {rotm.InDegrees}:"
+            // print ps
+        elif not <| areaOkC res pathC then
+            incr failCount
+            incr thisScaleFailCount
+            if !thisScaleFailCount < 3 then
+                Printfn.purple $"  ERROR: BAD AREA: {r0.Count} points at scale {scale}, rotation {rot} moveX {moveX}, moveY {moveY}"
+        else
+            incr failCount
+            incr thisScaleFailCount
+            if !thisScaleFailCount < 3 then
+                Printfn.red $"  ERROR: BAD COUNT: {r0.Count} points at scale {scale}, rotation {rot} moveX {moveX}, moveY {moveY}"
                 //print xps
 
 let transformAndRun (shift, moveX:float, moveY:float, scale:float, clipperPrec:int, rot:float) =
@@ -91,17 +130,31 @@ let transformAndRun (shift, moveX:float, moveY:float, scale:float, clipperPrec:i
                 >> Polyline2D.scale scale
                 >> Polyline2D.rotate rotm
                 )
+    // Klip:
     let pathK =
         transformed
         |>  Seq.map Polyline2D.asPoints
         |>  Paths64.createFromXYMembers
     let resK = unionK scale pathK
+    // let resK = unionK scale resK
     logK (resK, shift, moveX, moveY, scale, clipperPrec, rot, pathK)
-
+    
+    //Clipper2:
+    // let pathC : Clipper2Lib.PathsD =
+        // let ps = Clipper2Lib.PathsD()
+        // for xs in transformed do
+            // let c = Clipper2Lib.PathD()
+            // for p in xs.AsPoints do
+                // c.Add(Clipper2Lib.PointD(p.X, p.Y))
+            // ps.Add(c)
+        // ps
+    // let resC = unionC (clipperPrec-2) pathC
+    // logC (resC, shift, moveX, moveY, scale, clipperPrec, rot, pathC)
+    ()
 
 let run() =
     for sign in [-1.0; 1.0] do
-        for shift0 in [0.0 ; 1e-3; 1e-5; 1e-7; 1e-9] do
+        for shift0 in [0.0 ; 1e-3; 1e-5; 1e-7; 1e-7] do
             let shift = shift0 * sign
             Printfn.blue $"Testing shift {shift}.."
             for precision = -4 to 7 do

@@ -3,7 +3,7 @@
 #r "nuget: Rhino.Scripting.FSharp"
 
 
-#r "D:/Git/_Euclid_/Klip/bin/Release/netstandard2.0/Klip.dll"
+#r "../../../bin/Release/netstandard2.0/Klip.dll"
 
 
 open System
@@ -89,7 +89,7 @@ do
     rs.DisableRedraw()
 
     let xy: XY[][] =
-        "D:/Git/_Euclid_/Klip/Test/Rhino/polysXY.json"
+        __SOURCE_DIRECTORY__ + "/../data/polysXY.json"
         |>  File.ReadAllText
         |>  JsonSerializer.Deserialize<XY[][][]>
         |>  Array.map Array.head

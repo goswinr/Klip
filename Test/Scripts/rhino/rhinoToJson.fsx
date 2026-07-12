@@ -13,7 +13,7 @@ open Euclid
 open Str
 type rs = RhinoScriptSyntax
 
-// run on .\Test\benchSingle\union.3dm
+// run on ..\data\union.3dm (open it in Rhino first); regenerates ..\data\polysXY.json / polysXYOrig.json
 //
 let layer = "poly"
 
@@ -69,10 +69,10 @@ let polyXYOrig =
 let jsonXY     = JsonSerializer.Serialize(polyXY, JsonSerializerOptions(WriteIndented = true))
 let jsonXYOrig = JsonSerializer.Serialize(polyXYOrig, JsonSerializerOptions(WriteIndented = true))
 //printfn $"{Str.truncate 200 jsonXY}"
-IO.File.WriteAllText("polysXY.json", jsonXY)
-IO.File.WriteAllText("polysXYOrig.json", jsonXYOrig)
-printfn $"wrote: {__SOURCE_DIRECTORY__}/polysXY.json"
-printfn $"wrote: {__SOURCE_DIRECTORY__}/polysXYOrig.json"
+IO.File.WriteAllText(__SOURCE_DIRECTORY__ + "/../data/polysXY.json", jsonXY)
+IO.File.WriteAllText(__SOURCE_DIRECTORY__ + "/../data/polysXYOrig.json", jsonXYOrig)
+printfn $"wrote: {__SOURCE_DIRECTORY__}/../data/polysXY.json"
+printfn $"wrote: {__SOURCE_DIRECTORY__}/../data/polysXYOrig.json"
 
 
 

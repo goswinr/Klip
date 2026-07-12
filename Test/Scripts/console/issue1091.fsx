@@ -1,4 +1,4 @@
-﻿#r "../../bin/Release/netstandard2.0/Klip.dll"
+﻿#r "../../../bin/Release/netstandard2.0/Klip.dll"
 
 #r "nuget: ResizeArrayT, 0.26.0"
 #r "nuget: Euclid,0.30.1"

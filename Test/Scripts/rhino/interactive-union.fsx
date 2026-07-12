@@ -1,5 +1,5 @@
 ﻿#r "C:/Program Files/Rhino 8/System/RhinoCommon.dll"
-#r "D:/Git/_Euclid_/Klip/bin/Release/netstandard2.0/Klip.dll"
+#r "../../../bin/Release/netstandard2.0/Klip.dll"
 
 #r "nuget: Rhino.Scripting.FSharp, 0.14.0"
 #r "nuget: Euclid.Rhino,0.30.1"
@@ -31,9 +31,13 @@ let draw lay (ps:Klip.Paths64<unit>) =
         |> rs.Ot.AddCurve
         |> rs.setLayer $"draw::{lay}"
 
+// prints one point per line, so the output can be pasted back as a repro fixture
 let printAsCode(ps:ResizeArray<Polyline2D> ) =
     ps
     |> Seq.map Polyline2D.asFSharpCode
+    |> Seq.map ( fun s -> s.Replace("; ", "\n      "))
+    |> Seq.map ( fun s -> s.Replace("[|", "[|\n     "))
+    |> Seq.map ( fun s -> s.Replace("|]", "\n  |]"))
     |> Seq.iter (printfn "  %s")
 
 let unionKlip(ps:Klip.Paths64<unit>) =
