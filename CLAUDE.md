@@ -101,11 +101,15 @@ top-to-bottom; order in `Klip.fsproj` matters):
 
   - **Sort comparators and structural vertex-Y / scanline ordering stay exact** - relaxing those
     breaks the scanbeam. Point-equality, colinearity, and *horizontality* are tolerance-based.
-    `isHorizontal` uses a tight scale-relative angle test (`Eng.isHorizontalCoords`:
-    `|Δy| <= horzAngleTol * |Δx|`, default `1e-6`) coupled to `Eng.getDx`, so an unrounded
-    shared near-horizontal edge (e.g. a top edge at `37` vs `37.00000000000001`) is treated as
-    horizontal instead of landing its ends on two distinct scanlines and sealing an open notch
-    into a phantom hole. Keep `getDx` and `isHorizontal` routed through the same predicate.
+    `isHorizontal` uses a tight scale-relative angle test capped at point coincidence
+    (`Eng.isHorizontalCoords`: `|Δy| <= min(horzAngleTol * |Δx|, coordEqTol)`, angle default
+    `1e-5`) coupled to `Eng.getDx`, so an unrounded shared near-horizontal edge (e.g. a top edge
+    at `37` vs `37.00000000000001`) is treated as horizontal instead of landing its ends on two
+    distinct scanlines and sealing an open notch into a phantom hole. The `coordEqTol` cap is
+    load-bearing: a long shallow edge whose endpoint Ys are genuinely distinct points must sweep
+    as *sloped*, or `doHorizontal` consumes it a scanbeam before its far-end scanline and strands
+    another contour's seam edge arriving there (the seam never merges). Keep `getDx` and
+    `isHorizontal` routed through the same predicate.
 
   - Contours sharing a *seam* must merge, not stay separate: horizontal seams join via
     `convertHorzSegsToJoins` (strict X-range overlap - a real seam's overlap dwarfs float noise);
@@ -121,7 +125,9 @@ top-to-bottom; order in `Klip.fsproj` matters):
     tolerance via the `Clipper64.Tolerance` property (the four distance tolerances become the given
     value, `SplitAreaTolerance` its *square*; range `0.0 .. 1e12`, not a multiplier of the
     defaults); the angle tolerances (`ColinearityTolerance`, `HorizontalAngleTolerance`)
-    are scale-free. The individual tolerance properties are `[<Obsolete>]`-hidden expert
+    are scale-free and set together via the degree-valued `Clipper64.AngleTolerance` property
+    (colinearity = `sin θ`, horizontality = `sin θ / 100`; range `0.0 .. 5.7` degrees).
+    The individual tolerance properties are `[<Obsolete>]`-hidden expert
     overrides (still functional; tests that use them carry `#nowarn "44"`). For integer
     output, round solution coords yourself after clipping.
 

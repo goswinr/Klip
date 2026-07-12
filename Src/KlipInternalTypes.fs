@@ -217,6 +217,7 @@ module KlipInternalTypes =
         }
         static member create (
             horzAngleTol: float,
+            coordEqTol: float,
             botX:      float,
             botY:      float,
             botZ:      'Z,
@@ -232,9 +233,11 @@ module KlipInternalTypes =
                     // getDx inlined here. Keep this coupled to Engine2's
                     // isHorizontal predicate so near-horizontal edges get the
                     // same +/-infinity encoding immediately after creation.
+                    // Horizontality is angle-based AND capped at coordEqTol endpoint-Y
+                    // difference (see Eng.isHorizontalCoords for why the cap matters).
                     let dy = topY - botY
                     let dx = topX - botX
-                    if abs dy > horzAngleTol * abs dx then
+                    if abs dy > horzAngleTol * abs dx || abs dy > coordEqTol then
                         dx / dy
                     elif topX > botX then
                         Double.NegativeInfinity

@@ -89,7 +89,7 @@ type BooleanTests () =
     member _.UnionSelfNearHorizontalContinuationOfHorizontalEdge () =
         // Regression: a bound that runs exactly horizontal (100,37)->(60,37) and then continues
         // near-horizontal (60,37)->(20,36.999999999) (slope ratio 2.5e-11, well within the default
-        // HorizontalAngleTolerance of 1e-6). doHorizontal's loop exit tests the next vertex Y with
+        // HorizontalAngleTolerance of 1e-5). doHorizontal's loop exit tests the next vertex Y with
         // EXACT equality, so it exits and hands the near-flat continuation to updateEdgeIntoAEL,
         // which classifies it horizontal (no scanline for its top). Without re-queuing it into the
         // horizontal list (as doTopOfScanbeam does), the edge is orphaned in the AEL with dx = +/-inf,

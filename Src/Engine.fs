@@ -91,7 +91,7 @@ type Clipper64<'Z>() =
     let mutable mergeVertexToleranceSqrd = coordEqTol * coordEqTol // defaults to the same value as coordEqTol but can be tuned independently; exposed as MergeVertexTolerance
 
     let mutable colinTolSqrd = 1e-6  // 1e-3 * 1e-3 //  0.25 in Clipper2 // per-instance (squared); exposed as ColinearityTolerance
-    let mutable horzAngleTol = 1e-6 // per-instance; exposed as HorizontalAngleTolerance
+    let mutable horzAngleTol = 1e-5 // per-instance; exposed as HorizontalAngleTolerance, kept at 1/100 of the colinearity tolerance via AngleTolerance
     let mutable nearTopYToleranceFactor = 1e-4 // edge-height-relative part of the near-top join guard; tune via NearTopYToleranceFactor
     let mutable nearTopYToleranceCap = 2.0    // absolute ceiling of the near-top join guard; tune via NearTopYToleranceCap
     let mutable smallTriangleTol = 2.0 // per-instance; exposed as SmallTriangleTolerance (2 grid units in integer Clipper2)
@@ -1313,13 +1313,13 @@ type Clipper64<'Z>() =
         ae.topY <- ae.vertexTop.y
         ae.topZ <- ae.vertexTop.z
         ae.curX <- ae.botX
-        Eng.setDx (horzAngleTol, ae)
+        Eng.setDx (horzAngleTol, coordEqTol, ae)
 
         if isJoined ae then split(ae, ae.botX, ae.botY, ae.botZ)
 
         if isHorizontal ae then
             if not (isOpen ae) then
-                Eng.trimHorz(horzAngleTol, ae, preserveColinear)
+                Eng.trimHorz(horzAngleTol, coordEqTol, ae, preserveColinear)
         else
             insertScanline ae.topY
             checkJoinLeft(ae, ae.botX, ae.botY, ae.botZ, false)
@@ -1556,6 +1556,7 @@ type Clipper64<'Z>() =
             else
                 leftBound <- ActiveEdge.create(
                     horzAngleTol,
+                    coordEqTol,
                     vertex.x,      // botX
                     vertex.y,      // botY
                     vertex.z,      // botZ
@@ -1575,6 +1576,7 @@ type Clipper64<'Z>() =
             else
                 rightBound <- ActiveEdge.create(
                     horzAngleTol,
+                    coordEqTol,
                     vertex.x,       // botX
                     vertex.y,       // botY
                     vertex.z,       // botZ
@@ -2479,7 +2481,7 @@ type Clipper64<'Z>() =
     /// carried as an explicit argument into the colinearity primitives, with no module-global.
     /// Dimensionless, so it is not touched by <see cref="Tolerance"/> and needs no rescaling.
     /// </remarks>
-    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - dimensionless and scale-free, the default rarely needs adjusting.")>]
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - normally set via the AngleTolerance property (in degrees) instead.")>]
     member _.ColinearityTolerance
         with get() : float =
             Math.Sqrt colinTolSqrd // 0.25 as squared literal in Clipper2
@@ -2496,18 +2498,26 @@ type Clipper64<'Z>() =
     /// <remarks>
     /// This is effectively a slope (sin θ-like) angle from the horizontal, so - like
     /// <see cref="ColinearityTolerance"/> - it is scale-independent. Unrounded inputs can leave a
-    /// shared near-horizontal edge a hair off exact (e.g. a top edge at 37 vs 37.00000000000001);
+    /// shared near-horizontal edge a hair off exact (e.g. a top edge at 37 vs 37.0000000001);
     /// the former exact <c>topY = botY</c> test then landed its two ends on distinct scanlines and
     /// could seal an open notch into a phantom hole. It backs both <c>getDx</c> (the ±infinity
     /// horizontal-edge encoding) and the in-sweep <c>isHorizontal</c> test, which stay coupled.
+    /// The angle test is additionally capped by <see cref="CoordEqTolerance"/>: an edge is
+    /// horizontal only when its endpoint-Y difference is also within point coincidence,
+    /// <c>abs(Δy) &lt;= min(HorizontalAngleTolerance * abs(Δx), CoordEqTolerance)</c>. Without the
+    /// cap, a long shallow edge could classify horizontal while its two endpoints are genuinely
+    /// distinct points; the sweep then consumes it a scanbeam before its far-end scanline and
+    /// strands another contour's seam edge arriving there, so the seam never merges.
     /// Set it to 0 to restore the original exact behaviour; raise it to treat shallower edges as
     /// horizontal (too large will flatten genuine slopes and corrupt the sweep).
-    /// Default 1e-6. Valid range 0.0 .. 1e-3. Per-instance setting, like
+    /// Default 1e-5 (1/100 of the default colinearity tolerance, matching the
+    /// <see cref="AngleTolerance"/> coupling). Valid range 0.0 .. 1e-3. Per-instance setting, like
     /// <see cref="CoordEqTolerance"/> and <see cref="ColinearityTolerance"/>: carried as an
     /// explicit argument into the horizontal-edge primitives, with no module-global.
-    /// Dimensionless, so it is not touched by <see cref="Tolerance"/> and needs no rescaling.
+    /// The angle itself is dimensionless and needs no rescaling; only its
+    /// <see cref="CoordEqTolerance"/> cap scales with <see cref="Tolerance"/>.
     /// </remarks>
-    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - dimensionless and scale-free, the default rarely needs adjusting.")>]
+    [<Obsolete("Expert override, hidden from the public API surface (but still functional) - normally derived from the AngleTolerance property (in degrees, at one hundredth) instead.")>]
     member _.HorizontalAngleTolerance
         with get() : float = horzAngleTol
         and set(v: float) : unit =
@@ -2517,14 +2527,48 @@ type Clipper64<'Z>() =
                 invalidArg "HorizontalAngleTolerance" $"Horizontal angle tolerance must be between 0.0 and 1e-3. Got {v}."
 
     /// <summary>
+    /// The angle tolerance in degrees: the turn angle below which three points count as colinear.
+    /// Setting it drives both internal dimensionless angle tolerances at once.
+    /// </summary>
+    /// <remarks>
+    /// The setter converts the degrees to <c>sin θ</c> and assigns it to the internal
+    /// colinearity tolerance (which gates cross-product signs, point-on-edge tests,
+    /// adjacent-edge joins and colinear cleanup), and one hundredth of it to the internal
+    /// horizontal-angle tolerance (which decides when a near-horizontal edge takes the
+    /// horizontal code path in the sweep; additionally capped at <see cref="CoordEqTolerance"/>
+    /// endpoint-Y difference - see <see cref="HorizontalAngleTolerance"/>). Horizontality is
+    /// kept 100x tighter because classifying an edge as horizontal changes how the scanbeam
+    /// processes it - too loose flattens genuine slopes and corrupts the sweep.
+    /// The getter returns the current colinearity turn angle in degrees.
+    /// Both derived tolerances are dimensionless (scale-free), so - unlike
+    /// <see cref="Tolerance"/> - this needs no rescaling to the input's coordinate magnitude.
+    /// The defaults already follow this coupling: colinearity angle ~0.057 degrees
+    /// (sin θ = 1e-3), horizontal-angle tolerance 1e-5.
+    /// Valid range 0.0 .. 5.7 degrees; 0.0 makes both comparisons exact, and the upper
+    /// bound keeps the derived horizontal tolerance within its safe limit of 1e-3.
+    /// </remarks>
+    member _.AngleTolerance
+        with get() : float =
+            Math.Asin(min 1.0 (Math.Sqrt colinTolSqrd)) * 180.0 / Math.PI
+        and set(degrees: float) : unit =
+            if degrees >= 0.0 && degrees <= 5.7 then
+                let s = Math.Sin(degrees * Math.PI / 180.0)
+                colinTolSqrd <- s * s
+                horzAngleTol <- s / 100.0
+            else
+                invalidArg "AngleTolerance" $"Angle tolerance must be between 0.0 and 5.7 degrees. Got {degrees}."
+
+    /// <summary>
     /// The global absolute unit tolerance: the distance (in coordinate units) below which
     /// points are considered identical and lines touching.
     /// </summary>
     /// <remarks>
     /// Setting it drives all five internal scale-dependent tolerances: the four distance
     /// tolerances become this value, the area-valued split tolerance its square. The
-    /// dimensionless angle tolerances are unaffected. The getter returns the current
-    /// point-coincidence distance.
+    /// dimensionless angle tolerances are unaffected (set those via
+    /// <see cref="AngleTolerance"/>), though the point-coincidence distance set here also caps
+    /// the horizontality test (see <see cref="HorizontalAngleTolerance"/>).
+    /// The getter returns the current point-coincidence distance.
     /// Valid range 0.0 .. 1e12; 0.0 makes the comparisons exact. Per-instance setting.
     /// </remarks>
     member _.Tolerance

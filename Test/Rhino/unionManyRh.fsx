@@ -12,11 +12,11 @@ open Rhino.Scripting
 type rs = RhinoScriptSyntax
 
 rs.DisableRedraw()
-rs.LayerOn "poly"
+// rs.LayerOn "poly"
 
 let input : ResizeArray<Polyline2D> =
-    rs.GetObjects "polygons"
-    // rs.GetObjectsAndRemember "polygons--"
+    // rs.GetObjects "polygons"
+    rs.GetObjectsAndRemember "select polygons"
     // |>! Seq.iter (rs.HideObject >> ignore) 
     |>  Seq.map rs.CoercePolyline
     |>  Seq.map Polyline2D.ofRhPolyline
@@ -38,8 +38,8 @@ let printAsCode(ps:ResizeArray<Polyline2D> ) =
 
 let unionKlip(ps:Klip.Paths64<unit>) =
     let c = Clipper64()
-    // c.ColinearityTolerance <- 1e-5
-    // c.MergeVertexTolerance <- 0.002
+    c.Tolerance <- 2.0
+    c.ColinearityTolerance <- 0.1
     c.AddPaths(Paths64.ensurePositiveOrientations ps, PathType.Subject)
     c.Execute(ClipType.Union, FillRule.NonZero) |> fst
 
@@ -50,18 +50,15 @@ let inputPaths =
     |>  Paths64.createFromXYMembers
 
 printfn $"Input: {input.Count} paths"
-draw $"input-{input.Count}" inputPaths
-
+// draw $"input-{input.Count}" inputPaths
 let res1 = inputPaths |> unionKlip
-
 printfn $"Result1: {res1.Count} paths"
-draw $"result1-{input.Count}" res1
+draw $"result-{input.Count}" res1
 
-
-let res2 = res1 |> unionKlip
-
-printfn $"Result2: {res2.Count} paths"
-draw $"result2-{input.Count}" res2
+// repeat to clean up ?
+// let res2 = res1 |> unionKlip
+// printfn $"Result2: {res2.Count} paths"
+// draw $"result2-{input.Count}" res2
 
 // for p in r do
     // let pl = Polyline2D.createDirectly p.XYs

@@ -146,28 +146,37 @@ module internal Eng =
         ae === ae.outrec.frontEdge
 
     /// Scale-relative angle tolerance for treating an edge as horizontal. An edge counts as
-    /// horizontal when |Δy| <= horzAngleTol * |Δx|, i.e. its slope from horizontal is within
-    /// this (dimensionless, sin θ-like) tolerance. Unrounded inputs can leave a shared
-    /// near-horizontal edge a hair off exact (e.g. a top edge at 37 vs 37.00000000000001),
-    /// which the former exact `topY = botY` test missed, landing the two ends on distinct
-    /// scanlines and sealing open notches into phantom holes. Kept tiny so only genuine
-    /// floating-point noise is absorbed, never a real slope.
-    /// Carried by the caller (the per-instance `Clipper64.HorizontalAngleTolerance`) rather than
-    /// a module-global, so two clips can use different tolerances without interfering.
-    let inline isHorizontalCoords (horzAngleTol: float, botX: float, botY: float, topX: float, topY: float) : bool =
-        abs (topY - botY) <= horzAngleTol * abs (topX - botX)
+    /// horizontal when |Δy| <= horzAngleTol * |Δx| AND |Δy| <= coordEqTol, i.e. its slope from
+    /// horizontal is within this (dimensionless, sin θ-like) tolerance and its two endpoint Ys
+    /// are point-coincident. Unrounded inputs can leave a shared near-horizontal edge a hair
+    /// off exact (e.g. a top edge at 37 vs 37.0000000001), which the former exact
+    /// `topY = botY` test missed, landing the two ends on distinct scanlines and sealing open
+    /// notches into phantom holes.
+    /// The coordEqTol cap is essential: a long shallow edge can satisfy the angle test with an
+    /// endpoint-Y difference far above the point-coincidence tolerance. Its endpoints are then
+    /// genuinely distinct points, and collapsing them onto one scanline makes doHorizontal
+    /// consume the edge a scanbeam before the far-end scanline, stranding another contour's
+    /// seam edge arriving there (the seam never merges). The cap also keeps classification
+    /// consistent with the horizontal-segment machinery, whose output-point run walks use
+    /// point-coincidence (isEqualTol) on Y.
+    /// Both tolerances are carried by the caller (the per-instance
+    /// `Clipper64.HorizontalAngleTolerance` / `CoordEqTolerance`) rather than a module-global,
+    /// so two clips can use different tolerances without interfering.
+    let inline isHorizontalCoords (horzAngleTol: float, coordEqTol: float, botX: float, botY: float, topX: float, topY: float) : bool =
+        let dy = abs (topY - botY)
+        dy <= horzAngleTol * abs (topX - botX) && dy <= coordEqTol
 
-    let inline getDx (horzAngleTol: float, pt1X: float, pt1Y: float, pt2X: float, pt2Y: float) : float =
+    let inline getDx (horzAngleTol: float, coordEqTol: float, pt1X: float, pt1Y: float, pt2X: float, pt2Y: float) : float =
         let dy = pt2Y - pt1Y
-        if not (isHorizontalCoords (horzAngleTol, pt1X, pt1Y, pt2X, pt2Y)) then
+        if not (isHorizontalCoords (horzAngleTol, coordEqTol, pt1X, pt1Y, pt2X, pt2Y)) then
             (pt2X - pt1X) / dy
         elif pt2X > pt1X then
             Double.NegativeInfinity
         else
             Double.PositiveInfinity
 
-    let inline setDx (horzAngleTol: float, ae: ActiveEdge<'Z>) : unit =
-        ae.dx <- getDx (horzAngleTol, ae.botX, ae.botY, ae.topX, ae.topY)
+    let inline setDx (horzAngleTol: float, coordEqTol: float, ae: ActiveEdge<'Z>) : unit =
+        ae.dx <- getDx (horzAngleTol, coordEqTol, ae.botX, ae.botY, ae.topX, ae.topY)
 
     let inline topX (ae: ActiveEdge<'Z>, currentY: float) : float =
         if currentY = ae.topY || ae.topX = ae.botX then
@@ -190,8 +199,8 @@ module internal Eng =
                 x
 
 
-    let inline isHorizontal (horzAngleTol: float, ae: ActiveEdge<'Z>) : bool =
-        isHorizontalCoords (horzAngleTol, ae.botX, ae.botY, ae.topX, ae.topY)
+    let inline isHorizontal (horzAngleTol: float, coordEqTol: float, ae: ActiveEdge<'Z>) : bool =
+        isHorizontalCoords (horzAngleTol, coordEqTol, ae.botX, ae.botY, ae.topX, ae.topY)
 
     let inline isHeadingRightHorz (ae: ActiveEdge<'Z>) : bool =
         ae.dx = Double.NegativeInfinity
@@ -545,7 +554,7 @@ module internal Eng =
 
     // ---- Horizontal processing ----
 
-    let trimHorz (horzAngleTol: float, horzEdge: ActiveEdge<'Z>, preserveColinearFlag: bool) : unit =
+    let trimHorz (horzAngleTol: float, coordEqTol: float, horzEdge: ActiveEdge<'Z>, preserveColinearFlag: bool) : unit =
         let mutable wasTrimmed = false
         let mutable pt = nextVertex horzEdge
         let mutable loopOn = true
@@ -565,7 +574,7 @@ module internal Eng =
                 else
                     pt <- nextVertex horzEdge
         if wasTrimmed then
-            setDx (horzAngleTol, horzEdge)
+            setDx (horzAngleTol, coordEqTol, horzEdge)
 
     let getCurrYMaximaVertex (ae: ActiveEdge<'Z>) : Vertex<'Z> =
         let mutable result = ae.vertexTop
