@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [3.1.1] - 2026-09-07
+### Fixed
+- Packaging: the Fable source files are now packed from the Src folder instead of the repository root, so the package no longer ships test sources or generated obj files.
+
 ## [3.1.0] - 2026-07-12
 
 ### Fixed
@@ -97,6 +101,7 @@ spike it propped up in half-snapped touching-polygon unions.
 ### Changed
 - First release of Port of Clipper2 , ported and adapted from clipper2-ts version 2.0.1-15 to F#
 
+[3.1.1]: https://github.com/goswinr/Klip/compare/3.1.0...3.1.1
 [3.1.0]: https://github.com/goswinr/Klip/compare/3.0.0...3.1.0
 [3.0.0]: https://github.com/goswinr/Klip/compare/2.0.1153...3.0.0
 [2.0.1153]: https://github.com/goswinr/Klip/compare/2.0.1152...2.0.1153
