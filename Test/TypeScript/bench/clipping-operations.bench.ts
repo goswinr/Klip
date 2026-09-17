@@ -33,6 +33,11 @@ import {
 
 const fillRule = FillRule.NonZero;
 
+// Small fixed time/iteration budget (vs tinybench defaults time:500, iterations:10,
+// warmupTime:100, warmupIterations:5) so the full suite runs in well under a minute.
+// Trades sample count for speed - fine for a quick main-vs-branch comparison.
+const FAST_BENCH_OPTS = { time: 150, iterations: 5, warmupTime: 30, warmupIterations: 2 };
+
 interface JsonPoint {
   x: number;
   y: number;
@@ -99,19 +104,19 @@ function benchBooleanOperation(
   describe(name, () => {
     bench('clipper2-ts', () => {
       for (let i = 0; i < iterations; i++) runClipperTs(clipType, subject, clip);
-    });
+    }, FAST_BENCH_OPTS);
 
     bench('clipper2-wasm', () => {
       for (let i = 0; i < iterations; i++) {
         runWasmClipper(clipType, wasmSubject, wasmClip, fillRule);
       }
-    });
+    }, FAST_BENCH_OPTS);
 
     bench('Klip', () => {
       for (let i = 0; i < iterations; i++) {
         Klip.booleanOp(clipType, klipSubject, klipClip, fillRule);
       }
-    });
+    }, FAST_BENCH_OPTS);
 
   });
 }
@@ -130,15 +135,15 @@ function benchPolyTreeOperation(
   describe(name, () => {
     bench('clipper2-ts', () => {
       runClipperTsPolyTree(clipType, subject, clip);
-    });
+    }, FAST_BENCH_OPTS);
 
     bench('clipper2-wasm', () => {
       runWasmPolyTree(clipType, wasmSubject, wasmClip, fillRule);
-    });
+    }, FAST_BENCH_OPTS);
 
     bench('Klip', () => {
       Klip.booleanOpPolyTree(clipType, klipSubject, klipClip, fillRule);
-    });
+    }, FAST_BENCH_OPTS);
 
   });
 }
@@ -150,9 +155,9 @@ function benchConvenienceOperation(
   runKlip: () => void,
 ): void {
   describe(name, () => {
-    bench('clipper2-ts', runTs);
-    bench('clipper2-wasm', runWasm);
-    bench('Klip', runKlip);
+    bench('clipper2-ts', runTs, FAST_BENCH_OPTS);
+    bench('clipper2-wasm', runWasm, FAST_BENCH_OPTS);
+    bench('Klip', runKlip, FAST_BENCH_OPTS);
   });
 }
 
@@ -341,18 +346,18 @@ describe('Instance Reuse', () => {
         reusedClipper.addSubject(twoOverlapping);
         reusedSolution.length = 0;
         reusedClipper.execute(ClipType.Union, fillRule, reusedSolution);
-      });
+      }, FAST_BENCH_OPTS);
 
       bench('clipper2-wasm', () => {
         wasmClipper.Clear();
         wasmClipper.AddSubject(wasmSubject);
         wasmSolution.clear();
         wasmClipper.ExecutePath(wasmClipType(ClipType.Union), wasmFillRule(fillRule), wasmSolution);
-      });
+      }, FAST_BENCH_OPTS);
 
       bench('Klip', () => {
         Klip.booleanOp(ClipType.Union, klipSubject, null, fillRule);
-      });
+      }, FAST_BENCH_OPTS);
     });
   }
 
@@ -388,7 +393,7 @@ describe('Instance Reuse', () => {
         reusedClipper.addClip(nestedClip);
         reusedPolytree.clear();
         reusedClipper.execute(ClipType.Difference, fillRule, reusedPolytree);
-      });
+      }, FAST_BENCH_OPTS);
 
       bench('clipper2-wasm', () => {
         wasmClipper.Clear();
@@ -396,12 +401,12 @@ describe('Instance Reuse', () => {
         wasmClipper.AddClip(wasmClip);
         wasmPolytree.clear();
         wasmClipper.ExecutePoly(wasmClipType(ClipType.Difference), wasmFillRule(fillRule), wasmPolytree);
-      });
+      }, FAST_BENCH_OPTS);
 
       bench('Klip', () => {
         // Klip's booleanOpPolyTree always returns a fresh tree (no reuse API).
         Klip.booleanOpPolyTree(ClipType.Difference, klipSubject, klipClip, fillRule);
-      });
+      }, FAST_BENCH_OPTS);
     });
   }
 });

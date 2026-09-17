@@ -156,9 +156,12 @@ outputs. See `README.md` for the full rule set.
   `VitestFixtureBenchmarks.cs` instead mirrors the shapes and overlap pairs from
   `Test/TypeScript/bench/test-data.ts` / `clipping-operations.bench.ts` (the JS vitest bench suite), giving a
   second, less intersection-dense comparison point against the same Clipper2 NuGet package; run with
-  `dotnet run -c Release --project FSharp/Benchmark/Benchmark.csproj -- --filter '*VitestFixtureBenchmarks*'`
-  (uses BenchmarkDotNet's default adaptive job rather than `FastConfig`'s fixed invocation count, since
-  most of these fixtures are too cheap for a fixed count to produce a stable measurement).
+  `dotnet run -c Release --project FSharp/Benchmark/Benchmark.csproj -- --filter '*VitestFixtureBenchmarks*'`.
+  Both suites share `FastConfig` (in-process toolchain, fixed small invocation count, no Pilot-stage
+  exploration) so a full run of either one finishes in well under a minute - a quick main-vs-branch
+  comparison, not a precise/publishable measurement. The JS vitest bench suite
+  (`npm run bench` in `Test/TypeScript`) is similarly capped via `FAST_BENCH_OPTS` in
+  `clipping-operations.bench.ts`.
 
 - `Test/Scripts/` and `Test/FSharp/Tests/*.fsx` - exploratory `dotnet fsi` scripts; not part of CI.
   `Test/Scripts/console/` runs standalone, `Test/Scripts/rhino/` needs Rhino 8 running,

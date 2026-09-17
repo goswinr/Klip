@@ -164,13 +164,11 @@ namespace Clipper2Lib.Benchmark
         }
     }
 
-    // Unlike Benchmarks.cs's dense random-polygon dataset (individual ops taking
-    // 100us-38ms, well suited to FastConfig's fixed InvocationCount=128), most fixtures
-    // here are cheap enough that FastConfig's fixed invocation count produced sub-100ms
-    // iterations and highly noisy results (BenchmarkDotNet's own "MinIterationTime" warning).
-    // Use the default adaptive job instead so BenchmarkDotNet picks a large enough
-    // invocation count per benchmark for a stable measurement.
+    // Mirrors the JS vitest bench suite's shapes rather than Benchmarks.cs's dense random-polygon
+    // dataset. Shares Benchmarks.cs's FastConfig (in-process, fixed small invocation count) so all
+    // 34 cases here run in well under a minute; see FastConfig's own doc comment for the trade-off.
     [MemoryDiagnoser]
+    [Config(typeof(FastConfig))]
     public class VitestFixtureBenchmarks
     {
         private sealed class Case

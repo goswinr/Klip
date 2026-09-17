@@ -4,6 +4,7 @@ using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Toolchains.InProcess.Emit;
 using ClipperPath64 = Clipper2Lib.Path64;
 using ClipperPaths64 = Clipper2Lib.Paths64;
 using KlipPath64 = Klip.Path64<object>;
@@ -11,19 +12,24 @@ using KlipPaths64 = System.Collections.Generic.List<Klip.Path64<object>>;
 
 namespace Clipper2Lib.Benchmark
 {
+    // In-process (no per-benchmark process spawn) and a small fixed invocation count (no
+    // Pilot-stage exploration) so a full run of either Benchmarks or VitestFixtureBenchmarks
+    // finishes in well under a minute. Trades measurement precision for iteration speed -
+    // good enough for a quick main-vs-branch comparison, not for publishing numbers.
     public class FastConfig : ManualConfig
     {
         public FastConfig()
         {
             Add(DefaultConfig.Instance);
             AddJob(Job.Default
+                .WithToolchain(InProcessEmitToolchain.Instance)
                 .WithId("Quick")
                 .WithStrategy(RunStrategy.Throughput)
                 .WithLaunchCount(1)
-                .WithWarmupCount(2)
-                .WithIterationCount(2)
-                .WithInvocationCount(128)
-                .WithUnrollFactor(2)
+                .WithWarmupCount(1)
+                .WithIterationCount(1)
+                .WithInvocationCount(32)
+                .WithUnrollFactor(1)
             );
         }
     }
