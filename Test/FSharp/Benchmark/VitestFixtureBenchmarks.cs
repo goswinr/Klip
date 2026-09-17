@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Configs;
+using BenchmarkDotNet.Engines;
+using BenchmarkDotNet.Jobs;
+using BenchmarkDotNet.Toolchains.InProcess.Emit;
 using ClipperPath64 = Clipper2Lib.Path64;
 using ClipperPaths64 = Clipper2Lib.Paths64;
 using KlipPath64 = Klip.Path64<object>;
@@ -164,11 +168,34 @@ namespace Clipper2Lib.Benchmark
         }
     }
 
+    // ~10x FastConfig's invocation budget (still in-process, still no Pilot-stage exploration):
+    // these fixtures are individually much cheaper than Benchmarks.cs's dense dataset, so the same
+    // small invocation count that keeps Benchmarks.cs under a minute leaves this suite's 34 cases
+    // finishing in ~2s with no real variance data (IterationCount=1 => StdDev is always NA). This
+    // config trades some of that speed margin for actual iteration statistics, landing around
+    // 20-30s total - still well under a minute, but with a real StdDev/Error per case.
+    public class FixtureConfig : ManualConfig
+    {
+        public FixtureConfig()
+        {
+            Add(DefaultConfig.Instance);
+            AddJob(Job.Default
+                .WithToolchain(InProcessEmitToolchain.Instance)
+                .WithId("Fixture")
+                .WithStrategy(RunStrategy.Throughput)
+                .WithLaunchCount(1)
+                .WithWarmupCount(5)
+                .WithIterationCount(25)
+                .WithInvocationCount(560)
+                .WithUnrollFactor(1)
+            );
+        }
+    }
+
     // Mirrors the JS vitest bench suite's shapes rather than Benchmarks.cs's dense random-polygon
-    // dataset. Shares Benchmarks.cs's FastConfig (in-process, fixed small invocation count) so all
-    // 34 cases here run in well under a minute; see FastConfig's own doc comment for the trade-off.
+    // dataset. See FixtureConfig's doc comment for why this uses its own (longer) job.
     [MemoryDiagnoser]
-    [Config(typeof(FastConfig))]
+    [Config(typeof(FixtureConfig))]
     public class VitestFixtureBenchmarks
     {
         private sealed class Case

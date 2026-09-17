@@ -157,9 +157,12 @@ outputs. See `README.md` for the full rule set.
   `Test/TypeScript/bench/test-data.ts` / `clipping-operations.bench.ts` (the JS vitest bench suite), giving a
   second, less intersection-dense comparison point against the same Clipper2 NuGet package; run with
   `dotnet run -c Release --project FSharp/Benchmark/Benchmark.csproj -- --filter '*VitestFixtureBenchmarks*'`.
-  Both suites share `FastConfig` (in-process toolchain, fixed small invocation count, no Pilot-stage
-  exploration) so a full run of either one finishes in well under a minute - a quick main-vs-branch
-  comparison, not a precise/publishable measurement. The JS vitest bench suite
+  Both classes use an in-process toolchain with a fixed invocation count (no Pilot-stage exploration):
+  `Benchmarks.cs`'s `FastConfig` finishes in ~20s, while `VitestFixtureBenchmarks.cs`'s own
+  `FixtureConfig` runs a ~10x larger invocation budget (still ~20-30s total) since its fixtures are
+  individually much cheaper - that budget is what gives it usable per-case StdDev instead of a
+  single-sample measurement. Neither is a precise/publishable number, just a quick main-vs-branch
+  comparison. The JS vitest bench suite
   (`npm run bench` in `Test/TypeScript`) is similarly capped via `FAST_BENCH_OPTS` in
   `clipping-operations.bench.ts`.
 
