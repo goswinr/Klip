@@ -158,12 +158,12 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
 
     do
         if xys.Count % 2 <> 0 then
-            raise (ArgumentException $"Path64 constructor: coords.Count ({xys.Count}) must be even")
+            raise (ArgumentException $"Path64 constructor: xys.Count ({xys.Count}) must be even")
         match zs with
         |Some zs ->
             let pointCount = xys.Count / 2
             if zs.Count <> pointCount then
-                raise (ArgumentException $"Path64 constructor: zs.Count ({zs.Count}) <> point count ({pointCount})")
+                raise (ArgumentException $"Path64 constructor: zs.Count ({zs.Count}) <> point count ({pointCount}) in xys.")
         |None -> ()
 
 
@@ -428,6 +428,10 @@ module internal Geo =
 
     let inline dotProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
         let sum = dotProduct (pt1X, pt1Y, pt2X, pt2Y, pt3X, pt3Y)
+        // 0.0 is OK to check against, no tolerance needed here ,
+        // Its only caller first checks collinearity and removes coincident vertices ([Engine.fs (line 2019)](/D:/Git/_Euclid_/Klip/Src/Engine.fs:2019)).
+        // It then distinguishes a straight continuation from a U-turn: the normalized dot product is near +1 or −1, safely away from zero.
+        // A fixed epsilon would also introduce a scale-dependent threshold in squared coordinate units.
         if sum > 0.0 then
             1
         elif sum < 0.0 then
