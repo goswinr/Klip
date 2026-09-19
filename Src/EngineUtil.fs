@@ -60,8 +60,10 @@ module internal Eng =
 
         let dy1 = ae1.topY - ae1.botY
         let dx1 = ae1.topX - ae1.botX
-        let t = Robust.intersectionParameter(ae1.botX, ae1.botY, ae1.topX, ae1.topY, ae2.botX, ae2.botY, ae2.topX, ae2.topY)
-        if Double.IsNaN t then
+        let dy2 = ae2.topY - ae2.botY
+        let dx2 = ae2.topX - ae2.botX
+        let det = dy1 * dx2 - dy2 * dx1
+        if det = 0.0 then
             { // see AddNewIntersectNode:
             x = ae1.curX
             y = topY
@@ -70,6 +72,7 @@ module internal Eng =
             edge2 = ae2
             }
         else
+            let t = ((ae1.botX - ae2.botX) * dy2 - (ae1.botY - ae2.botY) * dx2) / det
             if t <= 0.0 then
                 {
                 x = ae1.botX
@@ -257,7 +260,9 @@ module internal Eng =
         let mutable correction = 0.
         let mutable current = op.next
         while current.next =!= op do
-            let term = Robust.determinant (op.x, op.y, current.x, current.y, current.next.x, current.next.y) - correction
+            let ax, ay = current.x - op.x, current.y - op.y
+            let bx, by = current.next.x - op.x, current.next.y - op.y
+            let term = (ax * by - ay * bx) - correction
             let sum = area + term
             correction <- (sum - area) - term
             area <- sum
@@ -265,7 +270,7 @@ module internal Eng =
         area
 
     let areaTriangle (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : float =
-        Robust.determinant (pt1X, pt1Y, pt2X, pt2Y, pt3X, pt3Y)
+        (pt2X - pt1X) * (pt3Y - pt1Y) - (pt2Y - pt1Y) * (pt3X - pt1X)
 
     /// Fast bounding-box overlap test used before calling segsIntersect.
     /// Early-exits on the first separating axis found instead of computing all

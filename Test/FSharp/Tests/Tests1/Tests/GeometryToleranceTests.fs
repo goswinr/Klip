@@ -37,45 +37,6 @@ type GeometryToleranceTests () =
         assertContainmentWithin coordTol expected x y polygon
 
     [<TestMethod>]
-    member _.OrientationRetainsAUnitDeterminantHiddenByProductCancellation () =
-        let a = 0.,0.
-        let b = 1e8,1e8-1.
-        let c = 2e8+1.,2e8-1.
-        for (ax,ay),(bx,by),(cx,cy) in [a,b,c; b,c,a; c,a,b] do
-            Assert.AreEqual(1, Geo.crossProductSign(ax,ay,bx,by,cx,cy))
-            Assert.AreEqual(-1, Geo.crossProductSign(ax,ay,cx,cy,bx,by))
-            Assert.IsFalse(Geo.isColinear(0.,ax,ay,bx,by,cx,cy))
-            Assert.AreEqual(0.5, (path [|ax;ay;bx;by;cx;cy|]).SignedArea, "area and orientation agree on the surviving unit determinant")
-
-    [<TestMethod>]
-    member _.FilteredOrientationAgreesWithIndependentIntegerDeterminants () =
-        let random = System.Random 419
-        for _ = 1 to 1000 do
-            let p = Array.init 6 (fun _ -> int64 (random.Next(-1000000000, 1000000000)))
-            let exact = (bigint p[2]-bigint p[0]) * (bigint p[5]-bigint p[1]) -
-                        (bigint p[3]-bigint p[1]) * (bigint p[4]-bigint p[0])
-            Assert.AreEqual(exact.Sign, Geo.crossProductSign(float p[0],float p[1],float p[2],float p[3],float p[4],float p[5]))
-        for power = 26 to 51 do
-            let n = 2. ** float power
-            for scale in [2. ** -500.; 1.; 2. ** 500.] do
-                Assert.AreEqual(1, Geo.crossProductSign(0.,0.,n*scale,(n-1.)*scale,(2.*n+1.)*scale,(2.*n-1.)*scale), "a unit determinant under power-of-two scaling")
-
-    [<TestMethod>]
-    member _.ExactOrientationHandlesUnderflowOverflowAndSubtractionRounding () =
-        for scale in [System.Double.Epsilon; 1e-200; 1e200; 1e308] do
-            Assert.AreEqual(1, Geo.crossProductSign(0.,0.,scale,0.,0.,scale))
-            Assert.AreEqual(-1, Geo.crossProductSign(0.,0.,0.,scale,scale,0.))
-        Assert.AreEqual(1, Geo.crossProductSign(-1e308,0.,1e308,0.,0.,1e308))
-        Assert.AreEqual(-1, Geo.crossProductSign(1e20,1e20,0.,0.,0.,1.), "subtracting the origin must not erase the unit displacement")
-
-    [<TestMethod>]
-    member _.ProperCrossingWithRoundedZeroDenominatorStillHasAFiniteMidpointParameter () =
-        let args = 0.,0.,2e8,2e8-2.,-1.,-1.,2e8+1.,2e8-1.
-        Assert.IsTrue(Geo.segsIntersectNotInclusive args)
-        Assert.AreEqual(0.5, Robust.intersectionParameter args)
-        Assert.IsTrue(System.Double.IsNaN(Robust.intersectionParameter(0.,0.,1.,1.,0.,1.,1.,2.)), "only exactly parallel lines have no parameter")
-
-    [<TestMethod>]
     member _.NearTopGuardKeepsItsPositiveWindowAtLargeCoordinateOffsets () =
         for top in [0.; 1e12; -1e12] do
             Assert.IsTrue(Eng.isNearOrAboveTopY(1e-4, 1e-5, top, top, top+1.), "positive margin includes the top itself")

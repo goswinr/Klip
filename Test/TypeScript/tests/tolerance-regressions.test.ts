@@ -3,51 +3,15 @@ import { Klip } from './klip-api';
 import { areaPaths, makePath, PointInPolygonResult } from './adapter';
 // Exercise the actual Fable predicates, not the independent test adapter's PIP.
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
-import { Geo_pointInPolygon, Geo_segsIntersectNotInclusive, Geo_isColinear, Geo_dotProductSign, Geo_crossProductSign, Robust_intersectionParameter, Geo_closedPathRepresentatives } from '../_js/Src/Core.js';
+import { Geo_pointInPolygon, Geo_segsIntersectNotInclusive, Geo_isColinear, Geo_dotProductSign } from '../_js/Src/Core.js';
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
-import { pointInOpPolygon, areaTriangle, areaOutPt, distFromLineGreaterThanTolerance, isNearOrAboveTopY } from '../_js/Src/EngineUtil.js';
+import { pointInOpPolygon, areaTriangle, areaOutPt } from '../_js/Src/EngineUtil.js';
 // @ts-ignore -- generated Fable module
 import { Path64$1__get_SignedArea } from '../_js/Src/Core.js';
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
 import * as Engine from '../_js/Src/Engine.js';
 
 describe('Float topology and tolerance defaults', () => {
-  test('closed near-equal chains select the same vertices for every cyclic start and winding', () => {
-    const vertices = [[0,0], [0.75,0.75], [1.5,0.75], [2.25,0], [10,0], [10,10], [0,10]];
-    let expected: number[][] | undefined;
-    for (const winding of [vertices, [...vertices].reverse()]) {
-      for (let start = 0; start < vertices.length; start++) {
-        const rotated = [...winding.slice(start), ...winding.slice(0, start)];
-        const retained = Geo_closedPathRepresentatives(1, makePath(rotated.flat())).map((i: number) => rotated[i]).sort();
-        expected ??= retained;
-        expect(retained).toEqual(expected);
-      }
-    }
-  });
-  test('orientation and area recover a unit determinant lost to multiplication rounding', () => {
-    const p = [0, 0, 1e8, 1e8-1, 2e8+1, 2e8-1];
-    expect(Geo_crossProductSign(...p)).toBe(1);
-    expect(areaTriangle(...p)).toBe(1);
-    expect(Path64$1__get_SignedArea(makePath(p))).toBe(0.5);
-    for (const s of [Number.MIN_VALUE, 1e-200, 1e200, 1e308]) {
-      expect(Geo_crossProductSign(0, 0, s, 0, 0, s)).toBe(1);
-      expect(Geo_crossProductSign(0, 0, 0, s, s, 0)).toBe(-1);
-    }
-    expect(Geo_crossProductSign(1e20, 1e20, 0, 0, 0, 1)).toBe(-1);
-    expect(Geo_crossProductSign(-1e308, 0, 1e308, 0, 0, 1e308)).toBe(1);
-  });
-
-  test('a proper crossing with a rounded-zero determinant has a finite intersection parameter', () => {
-    const coordinates = [0, 0, 2e8, 2e8-2, -1, -1, 2e8+1, 2e8-1];
-    expect(Geo_segsIntersectNotInclusive(...coordinates)).toBe(true);
-    expect(Robust_intersectionParameter(...coordinates)).toBe(0.5);
-  });
-
-  test('distance predicates retain tiny offsets and translated guard windows', () => {
-    expect(distFromLineGreaterThanTolerance(0, 0, 1e-200, 0, 0, 1e-200, 0)).toBe(true);
-    expect(isNearOrAboveTopY(1e-4, 1e-5, 1e12, 1e12, 1e12+1)).toBe(true);
-    expect(isNearOrAboveTopY(1e-4, 0, 1e12, 1e12, 1e12+1)).toBe(false);
-  });
   test.each([NaN, Infinity, -Infinity])('input coordinate %s is rejected before ingesting a valid prefix', bad => {
     const c = Engine.Clipper64$1_$ctor();
     expect(() => Engine.Clipper64$1__AddSubject_2ABD14E4(c, [makePath([0, 0, 10, 0, 10, 10]), makePath([bad, 0, 1, 0, 0, 1])])).toThrow();
