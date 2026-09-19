@@ -170,7 +170,8 @@ tuning:
 
 The individual tolerance properties (point coincidence, adjacent-edge joins, colinearity, horizontality,
 the near-top join guard, and the sliver culls) remain functional as expert overrides but are marked
-`[<Obsolete>]` and hidden from editor completion - the `Tolerance` property is the supported tuning surface.
+`[<Obsolete>]`. Use `Tolerance` and `AngleTolerance` for ordinary tuning; editor visibility of
+obsolete members depends on the tooling.
 Each is documented in detail on the member itself in `Src/Engine.fs`.
 
 ### Tolerances and scaling
@@ -202,19 +203,32 @@ exact mode at zero. Larger sine values are rejected because they cannot round-tr
 the supported angle range.
 
 `AngleTolerance` controls colinear cleanup and adjacent-edge joins (and derives the tighter horizontal
-angle threshold). It does not flatten orientation signs used for edge ordering or proper segment
+angle threshold). Cleanup also requires the removed vertex's perpendicular deviation to fit the
+absolute coordinate tolerance, so a small angle alone cannot erase a large thin polygon.
+It does not flatten orientation signs used for edge ordering or proper segment
 crossings. Point-on-boundary checks use the absolute coordinate tolerance, followed by exact
 ray-crossing comparisons for containment.
 
-Every tolerance comparison in the engine is dimensionally homogeneous, so clipping is scale-equivariant:
-scaling all inputs by `s` together with the tolerance yields the identically scaled solution.
-The angle tolerances are scale-independent and never need adjusting.
+Scale distances with the input coordinates and area thresholds with the square of that scale;
+angle tolerances are dimensionless. Floating-point rounding and representable range still limit
+scale invariance. Orientation signs use an exact fallback for the supplied finite double values,
+and areas use local origins with compensated summation. Constructed intersection coordinates
+remain doubles, and cannot recover detail already lost when the input coordinates were rounded.
+All input XY coordinates must be finite. A failed `AddPaths` validation adds none of its paths.
 
 ### Snap preprocessing
 
 Optionally call `Snap.xAndY tolerance pathGroups` or `Snap.xAndYSingle tolerance paths` to snap nearly-equal
 x and y coordinates to their respective averages. This is an in-place mutation done *before* adding paths to
 `Clipper64`. Call it on all paths at once so the same shared coordinate is used across subject and clip.
+
+Snapping treats paths as closed. Each vertex qualifies on an axis if either neighbour is within
+tolerance on that axis, and contributes once to the average. Sorted clusters have a total width
+at most the tolerance; chains of close neighbours do not merge into an unbounded cluster.
+This is one pass over the original geometry: repeated snapping can form new clusters, so it is
+not an idempotent normalization operation. Identical coordinates remain bit-exact, even at zero
+tolerance. Invalid tolerances or nonfinite coordinates are rejected before any buffer is changed.
+`Snap.DefaultTolerance` is `1e-5`; pass it explicitly when desired.
 
 ## Building
 
