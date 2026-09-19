@@ -55,6 +55,11 @@ describe('Float topology and tolerance defaults', () => {
     expect(Geo_pointInPolygon(0, 1, 49, makePath([0, 0, 3, 147, 0, 147]))).toBe(PointInPolygonResult.IsOn);
   });
 
+  test.each([0, 1e-20, 1e-16, 1e-12, 1e-5])('exact edge incidence survives boundary tolerance %s', tolerance => {
+    expect(Geo_pointInPolygon(tolerance, 1, 49, makePath([0, 0, 3, 147, 0, 147]))).toBe(PointInPolygonResult.IsOn);
+    expect(Geo_pointInPolygon(tolerance, 1, 49, makePath([0, 147, 3, 147, 0, 0]))).toBe(PointInPolygonResult.IsOn);
+  });
+
   test('a short segment crosses a long diagonal, while endpoint-only contact is excluded', () => {
     expect(Geo_segsIntersectNotInclusive(0, 0, 1e6, 1e6, 5e5, 5e5 - 1, 5e5, 5e5 + 1)).toBe(true);
     expect(Geo_segsIntersectNotInclusive(0, 0, 1e6, 1e6, 5e5, 5e5, 5e5, 5e5 + 1)).toBe(false);

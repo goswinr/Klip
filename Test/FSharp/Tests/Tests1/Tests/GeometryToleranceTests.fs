@@ -71,6 +71,12 @@ type GeometryToleranceTests () =
         assertContainmentWithin 0. PointInPolygonResult.IsOn 1. 49. triangle
 
     [<TestMethod>]
+    member _.IncreasingBoundaryToleranceCannotDislodgeAnExactlyCollinearPoint () =
+        let triangle = path [| 0.;0.; 3.;147.; 0.;147. |]
+        for tolerance in [0.; 1e-20; 1e-16; 1e-12; 1e-5] do
+            assertContainmentWithin tolerance PointInPolygonResult.IsOn 1. 49. triangle
+
+    [<TestMethod>]
     member _.ShortSegmentCrossingLongDiagonalIsAProperIntersectionInEitherDirection () =
         let diagonal = [0.,0.,1e6,1e6; 1e6,1e6,0.,0.]
         let crossing = [5e5,5e5-1.,5e5,5e5+1.; 5e5,5e5+1.,5e5,5e5-1.]

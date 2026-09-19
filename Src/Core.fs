@@ -451,10 +451,11 @@ module internal Geo =
         elif (isEqualWithin coordEqTol ptX ax && isEqualWithin coordEqTol ptY ay) ||
              (isEqualWithin coordEqTol ptX bx && isEqualWithin coordEqTol ptY by) then
             true
-        elif coordEqTol = 0.0 then
-            // Scaling a direction can round a collinear point off its line.
-            // In exact-comparison mode use the same determinant as ray crossings.
-            crossProductSign (ax, ay, bx, by, ptX, ptY) = 0
+        elif crossProductSign (ax, ay, bx, by, ptX, ptY) = 0 then
+            // Recognize exact incidence before normalizing the direction: rounding
+            // that direction must not dislodge a boundary point at tiny tolerances.
+            true
+        elif coordEqTol = 0.0 then false
         else
             let dx = bx - ax
             let dy = by - ay
