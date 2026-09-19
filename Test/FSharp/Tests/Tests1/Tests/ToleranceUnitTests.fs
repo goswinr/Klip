@@ -55,6 +55,33 @@ type ToleranceUnitTests () =
         closed
 
     [<TestMethod>]
+    member _.DefaultsMatchExplicitlySettingTheReportedTolerance () =
+        let c = Clipper64<unit>()
+        let before = c.CoordEqTolerance, c.MergeVertexTolerance, c.NearTopYToleranceCap, c.SmallTriangleTolerance, c.SplitAreaTolerance
+        c.Tolerance <- c.Tolerance
+        let after = c.CoordEqTolerance, c.MergeVertexTolerance, c.NearTopYToleranceCap, c.SmallTriangleTolerance, c.SplitAreaTolerance
+        Assert.AreEqual(before, after, "assigning the reported default must not change hidden culling or join thresholds")
+
+    [<TestMethod>]
+    member _.DefaultUnionPreservesUnitAndSubunitTriangles () =
+        // Integer-grid culls used to discard these ordinary float polygons.
+        for side in [1.0; 0.01] do
+            let triangle = paths [path [| 0.;0.; side;0.; 0.;side |]]
+            let result = Klipper.unionSelf triangle
+            Assert.AreEqual(1, result.Count, sprintf "triangle with side %g must survive default clipping" side)
+            Assert.AreEqual(3, result[0].PointCount)
+            Assert.AreEqual(side * side * 0.5, totalAbsArea result, side * side * 1e-12)
+
+    [<TestMethod>]
+    member _.AssigningReportedDefaultDoesNotChangeTriangleUnion () =
+        let triangle = paths [path [| 0.;0.; 1.;0.; 0.;1. |]]
+        let defaultResult = unionWithTolerance None triangle (paths [])
+        let explicitResult = unionWithTolerance (Some (Clipper64<unit>().Tolerance)) triangle (paths [])
+        Assert.AreEqual(1, defaultResult.Count, "the default must preserve a unit triangle")
+        Assert.AreEqual(defaultResult.Count, explicitResult.Count)
+        Assert.AreEqual(totalAbsArea defaultResult, totalAbsArea explicitResult)
+
+    [<TestMethod>]
     member _.ToleranceSetsAllFiveScaleDependentTolerances () =
         let c = Clipper64<unit>()
         // poke every scale-dependent tolerance away first
@@ -110,14 +137,13 @@ type ToleranceUnitTests () =
                 Assert.AreEqual(baseline[i].GetX j * s, scaled[i].GetX j, sprintf "x of point %d in path %d" j i)
                 Assert.AreEqual(baseline[i].GetY j * s, scaled[i].GetY j, sprintf "y of point %d in path %d" j i)
 
-        // Sanity: with the *default* (unscaled) tolerances the same tiny input is mangled -
-        // the whole fixture spans ~0.23 units, below the 2.0 sliver-cull window - so the
-        // tolerance is doing real work above, not vacuously passing.
-        let mangled = unionWithTolerance None (scalePaths s (subject ())) (scalePaths s (clip ()))
+        // Sanity: keeping t0 unscaled collapses this ~0.23-unit fixture. This uses an
+        // explicitly oversized tolerance, not a dependency on legacy integer-grid defaults.
+        let mangled = unionWithTolerance (Some t0) (scalePaths s (subject ())) (scalePaths s (clip ()))
         let sameShape =
             mangled.Count = baseline.Count
             && abs (totalAbsArea mangled - totalAbsArea baseline * s * s) <= totalAbsArea baseline * s * s * 1e-9
-        Assert.IsFalse(sameShape, "default tolerances at tiny scale should not reproduce the correctly-scaled result")
+        Assert.IsFalse(sameShape, "an unscaled tolerance at tiny scale should not reproduce the correctly-scaled result")
 
     [<TestMethod>]
     member _.ScaledInputWithScaledToleranceGivesScaledOutput_DecimalScale () =

@@ -179,8 +179,14 @@ The distance tolerances are absolute and do **not** auto-scale - the engine does
 magnitude. Set them all from one absolute tolerance with `c.Tolerance <- t` - the distance below which
 points are considered identical and lines touching: the four distance tolerances become `t`, and the area-valued split
 tolerance becomes `t²` (valid range `0.0 .. 1e12`; `0` makes the comparisons exact). The value is used
-as-is, not as a multiplier of the defaults - those are calibrated for integer-Clipper2-style inputs of
-coordinate magnitude ~1e6 and do not correspond to any single call of this method.
+as-is, not as a multiplier of the defaults. A new instance is equivalent to setting
+`c.Tolerance <- 1e-5`: all four distance thresholds are `1e-5`, and the split-area threshold is `1e-10`.
+Unit and subunit triangles no longer need an explicit assignment to bypass integer-grid culling defaults.
+
+`AngleTolerance` controls colinear cleanup and adjacent-edge joins (and derives the tighter horizontal
+angle threshold). It does not flatten orientation signs used for edge ordering or proper segment
+crossings. Point-on-boundary checks use the absolute coordinate tolerance, followed by exact
+ray-crossing comparisons for containment.
 
 Every tolerance comparison in the engine is dimensionally homogeneous, so clipping is scale-equivariant:
 scaling all inputs by `s` together with the tolerance yields the identically scaled solution.

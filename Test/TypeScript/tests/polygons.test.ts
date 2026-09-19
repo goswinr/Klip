@@ -7,6 +7,7 @@
 
 import { describe, test, expect } from 'vitest';
 import { Klip } from './klip-api';
+import { booleanOpIntegerFixture } from './integer-fixture-engine';
 import { ClipType, FillRule, TestDataParser } from './test-data-parser';
 import {
   toKlipPaths,
@@ -22,13 +23,15 @@ describe('Comprehensive Polygon Clipping Tests', () => {
 
   const allTestCases = TestDataParser.loadAllTestCases('Polygons.txt');
 
-  test.each(allTestCases.map((tc, idx) => ({ testNum: idx + 1, testCase: tc })))(
-    'Polygon Test $testNum: $testCase.clipType/$testCase.fillRule',
-    ({ testNum, testCase }) => {
+  test.each(allTestCases.flatMap((tc, idx) =>
+    ['float defaults', 'integer fixture culls'].map(mode => ({ testNum: idx + 1, testCase: tc, mode }))))(
+    'Polygon Test $testNum: $testCase.clipType/$testCase.fillRule ($mode)',
+    ({ testNum, testCase, mode }) => {
       const subj = toKlipPaths(testCase.subjects);
       const clip = toKlipPaths(testCase.clips);
 
-      const solution = Klip.booleanOp(
+      const booleanOp = mode === 'integer fixture culls' ? booleanOpIntegerFixture : Klip.booleanOp;
+      const solution = booleanOp(
         testCase.clipType,
         subj,
         clip.length > 0 ? clip : null,
@@ -44,7 +47,9 @@ describe('Comprehensive Polygon Clipping Tests', () => {
       // Count tolerance schedule lifted from clipper2-ts/tests/polygons.test.ts.
       // Reflects known small differences vs. the .txt's expected counts even
       // for the C# reference implementation.
-      if (testCase.expectedCount > 0) {
+      // Integer reference counts deliberately omit small contours. Keep their original
+      // count bounds with explicit legacy culls; check areas below in BOTH modes.
+      if (testCase.expectedCount > 0 && mode === 'integer fixture culls') {
         // NOTE: Klip runs the clipping engine on UNROUNDED floats (the integer-grid
         // snapping in Geo.jsRound was removed). A handful of complex cases therefore
         // fragment slightly differently from the rounded SOL_COUNT reference, so their

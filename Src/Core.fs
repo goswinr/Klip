@@ -14,6 +14,12 @@ namespace Klip
 
 open System
 
+#if !FABLE_COMPILER
+// Exercise geometry predicates directly without exposing them as public API.
+[<assembly: Runtime.CompilerServices.InternalsVisibleTo("Tests1")>]
+do ()
+#endif
+
 type internal OPT = Runtime.InteropServices.OptionalAttribute
 type internal DEF = Runtime.InteropServices.DefaultParameterValueAttribute
 
@@ -382,24 +388,20 @@ module internal Geo =
         cross * cross <= colinTolSqrd * scaleSq // needs `<=` because both sides might be zero
 
 
-    let inline crossProductSign (colinTolSqrd: float) (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
-        let a = pt2X - pt1X
-        let b = pt3Y - pt2Y
-        let c = pt2Y - pt1Y
-        let d = pt3X - pt2X
-        if crossIsZero colinTolSqrd a b c d then
-            0
-        elif a * b > c * d then
-            1
-        else
-            -1
+    /// Orientation for topology, independent of the angle used for colinear cleanup.
+    /// A shallow but nonzero turn still determines which side of an edge a point lies on.
+    let inline crossProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
+        let left = (pt2X - pt1X) * (pt3Y - pt1Y)
+        let right = (pt2Y - pt1Y) * (pt3X - pt1X)
+        if left > right then 1
+        elif left < right then -1
+        else 0
 
-
-    let segsIntersectNotInclusive(colinTolSqrd: float, seg1aX: float, seg1aY: float, seg1bX: float, seg1bY: float, seg2aX: float, seg2aY: float, seg2bX: float, seg2bY: float) : bool =
-        let s1 = crossProductSign colinTolSqrd (seg1aX, seg1aY, seg2aX, seg2aY, seg2bX, seg2bY)
-        let s2 = crossProductSign colinTolSqrd (seg1bX, seg1bY, seg2aX, seg2aY, seg2bX, seg2bY)
-        let s3 = crossProductSign colinTolSqrd (seg2aX, seg2aY, seg1aX, seg1aY, seg1bX, seg1bY)
-        let s4 = crossProductSign colinTolSqrd (seg2bX, seg2bY, seg1aX, seg1aY, seg1bX, seg1bY)
+    let segsIntersectNotInclusive(seg1aX: float, seg1aY: float, seg1bX: float, seg1bY: float, seg2aX: float, seg2aY: float, seg2bX: float, seg2bY: float) : bool =
+        let s1 = crossProductSign (seg2aX, seg2aY, seg2bX, seg2bY, seg1aX, seg1aY)
+        let s2 = crossProductSign (seg2aX, seg2aY, seg2bX, seg2bY, seg1bX, seg1bY)
+        let s3 = crossProductSign (seg1aX, seg1aY, seg1bX, seg1bY, seg2aX, seg2aY)
+        let s4 = crossProductSign (seg1aX, seg1aY, seg1bX, seg1bY, seg2bX, seg2bY)
         (s1 <> 0 && s2 <> 0 && s1 <> s2)
         &&
         (s3 <> 0 && s4 <> 0 && s3 <> s4)
@@ -439,113 +441,58 @@ module internal Geo =
         else
             0
 
-    let pointInPolygon (coordEqTol: float, colinTolSqrd: float, ptX: float, ptY: float, polygon: Path64<'Z>) : PointInPolygonResult =
-        let inline isEqual a b = isEqualWithin coordEqTol a b
-        let inline crossProductSign args = crossProductSign colinTolSqrd args
+    /// Boundary proximity is an absolute distance, never an angle from an endpoint.
+    /// Bound the segment in both axes (including endpoint coincidence), then check
+    /// perpendicular distance using a scaled direction to avoid squaring edge lengths.
+    let inline pointOnSegment (coordEqTol: float) (ptX: float, ptY: float, ax: float, ay: float, bx: float, by: float) : bool =
+        if ptX < min ax bx - coordEqTol || ptX > max ax bx + coordEqTol ||
+           ptY < min ay by - coordEqTol || ptY > max ay by + coordEqTol then
+            false
+        elif (isEqualWithin coordEqTol ptX ax && isEqualWithin coordEqTol ptY ay) ||
+             (isEqualWithin coordEqTol ptX bx && isEqualWithin coordEqTol ptY by) then
+            true
+        elif coordEqTol = 0.0 then
+            // Scaling a direction can round a collinear point off its line.
+            // In exact-comparison mode use the same determinant as ray crossings.
+            crossProductSign (ax, ay, bx, by, ptX, ptY) = 0
+        else
+            let dx = bx - ax
+            let dy = by - ay
+            let scale = max (abs dx) (abs dy)
+            if scale = 0.0 then false
+            else
+                let ux = dx / scale
+                let uy = dy / scale
+                abs ((ptX - ax) * uy - (ptY - ay) * ux) <= coordEqTol * sqrt (ux * ux + uy * uy)
+
+    let pointInPolygon (coordEqTol: float, ptX: float, ptY: float, polygon: Path64<'Z>) : PointInPolygonResult =
         let len = polygon.PointCount
         if len < 3 then
             PointInPolygonResult.IsOutside
         else
-            let coords = polygon.XYs
-            let inline getX i = Rarr.getIdx (i * 2) coords
-            let inline getY i = Rarr.getIdx (i * 2 + 1) coords
-            let mutable start = 0
-            while start < len && isEqual (getY start) ptY do
-                start <- start + 1
-            if start = len then
-                PointInPolygonResult.IsOutside
-            else
-                let mutable isAbove = getY start < ptY
-                let startingAbove = isAbove
-                let mutable valToggle = 0
-                let mutable i = start + 1
-                let mutable endIdx = len
-                let mutable loopOn = true
-                let mutable hasResult = false
-                let mutable result = PointInPolygonResult.IsOutside
+            let mutable ax = polygon.GetX (len - 1)
+            let mutable ay = polygon.GetY (len - 1)
+            let mutable inside = false
+            let mutable onBoundary = false
+            let mutable i = 0
+            while i < len && not onBoundary do
+                let bx = polygon.GetX i
+                let by = polygon.GetY i
+                if pointOnSegment coordEqTol (ptX, ptY, ax, ay, bx, by) then
+                    onBoundary <- true
+                // Half-open ray crossings must use exact Y ordering so a vertex
+                // is counted only once. Distance tolerance belongs only above.
+                elif (ay > ptY) <> (by > ptY) then
+                    let side = crossProductSign (ax, ay, bx, by, ptX, ptY)
+                    if (side > 0) = (by > ay) then inside <- not inside
+                ax <- bx
+                ay <- by
+                i <- i + 1
+            if onBoundary then PointInPolygonResult.IsOn
+            elif inside then PointInPolygonResult.IsInside
+            else PointInPolygonResult.IsOutside
 
-                while loopOn do
-                    let mutable skip = false
-
-                    if i = endIdx then
-                        if endIdx = 0 || start = 0 then
-                            loopOn <- false
-                            skip <- true
-                        else
-                            endIdx <- start
-                            i <- 0
-
-                    if loopOn && not skip then
-                        if isAbove then
-                            while i < endIdx && getY i < ptY do i <- i + 1
-                        else
-                            while i < endIdx && getY i > ptY do i <- i + 1
-
-                        if i = endIdx then
-                            skip <- true  // continue - wrap around
-                        else
-                            let currX = getX i
-                            let currY = getY i
-                            let prevIdx = if i > 0 then i - 1 else len - 1
-                            let prevX = getX prevIdx
-                            let prevY = getY prevIdx
-
-                            if isEqual currY ptY then
-                                if isEqual currX ptX ||
-                                   (isEqual currY prevY && ((ptX < prevX) <> (ptX < currX))) then
-                                    hasResult <- true
-                                    result <- PointInPolygonResult.IsOn
-                                    loopOn <- false
-                                else
-                                    i <- i + 1
-                                    if i = start then
-                                        loopOn <- false
-                                skip <- true
-
-                            if loopOn && not skip then
-                                if ptX < currX && ptX < prevX then
-                                    ()  // edge entirely to the right - ignore
-                                elif ptX > prevX && ptX > currX then
-                                    valToggle <- 1 - valToggle
-                                else
-                                    let cps = crossProductSign (prevX, prevY, currX, currY, ptX, ptY)
-                                    if cps = 0 then
-                                        hasResult <- true
-                                        result <- PointInPolygonResult.IsOn
-                                        loopOn <- false
-                                    elif (cps < 0) = isAbove then
-                                        valToggle <- 1 - valToggle
-
-                                if loopOn then
-                                    isAbove <- not isAbove
-                                    i <- i + 1
-
-                if hasResult then
-                    result
-                elif isAbove = startingAbove then
-                    if valToggle = 0 then
-                        PointInPolygonResult.IsOutside
-                    else
-                        PointInPolygonResult.IsInside
-                else
-                    if i = len then
-                        i <- 0
-                    let cps =
-                        if i = 0 then
-                            crossProductSign (getX (len - 1), getY (len - 1), getX 0, getY 0, ptX, ptY)
-                        else
-                            crossProductSign (getX (i - 1), getY (i - 1), getX i, getY i, ptX, ptY)
-                    if cps = 0 then
-                        PointInPolygonResult.IsOn
-                    else
-                        if (cps < 0) = isAbove then
-                            valToggle <- 1 - valToggle
-                        if valToggle = 0 then
-                            PointInPolygonResult.IsOutside
-                        else
-                            PointInPolygonResult.IsInside
-
-    let path2ContainsPath1 (coordEqTol: float) (colinTolSqrd: float) (path1: Path64<'Z>) (path2: Path64<'Z>) : bool =
+    let path2ContainsPath1 (coordEqTol: float) (path1: Path64<'Z>) (path2: Path64<'Z>) : bool =
         // We need to make some accommodation for rounding errors so we don't
         // jump if the first vertex is found outside.
         let mutable pip = PointInPolygonResult.IsOn
@@ -555,7 +502,7 @@ module internal Geo =
         let coords = path1.XYs
         while not earlyDone && i < path1.PointCount do
             let coord = i * 2
-            match pointInPolygon (coordEqTol, colinTolSqrd, Rarr.getIdx coord coords, Rarr.getIdx (coord + 1) coords, path2) with
+            match pointInPolygon (coordEqTol, Rarr.getIdx coord coords, Rarr.getIdx (coord + 1) coords, path2) with
             | PointInPolygonResult.IsOutside ->
                 if pip = PointInPolygonResult.IsOutside then
                     earlyResult <- false
@@ -594,7 +541,7 @@ module internal Geo =
                     if y > bottom then bottom <- y
                 let midX = (left + right) * 0.5 // no more rounding (to int64) here
                 let midY = (top + bottom) * 0.5 // no more rounding (to int64) here
-                pointInPolygon (coordEqTol, colinTolSqrd, midX, midY, path2) <> PointInPolygonResult.IsOutside
+                pointInPolygon (coordEqTol, midX, midY, path2) <> PointInPolygonResult.IsOutside
 
     /// Reverses a path (returns a new Path64).
     let reversePath (path: Path64<'Z>) : Path64<'Z> =

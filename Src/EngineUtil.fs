@@ -243,7 +243,7 @@ module internal Eng =
 
     // The "really close" window is an absolute distance inherited from integer-grid
     // Clipper2 (2 grid units). It is carried by the caller (the per-instance
-    // `Clipper64.SmallTriangleTolerance`, default 2.0) so it can be scaled to the
+    // `Clipper64.SmallTriangleTolerance`, default 1e-5) so it can be scaled to the
     // coordinate magnitude of the input, like the other absolute tolerances.
     let inline ptsReallyClose (closeTol: float, pt1X: float, pt1Y: float, pt2X: float, pt2Y: float) : bool =
         Math.Abs(pt1X - pt2X) < closeTol && Math.Abs(pt1Y - pt2Y) < closeTol
@@ -604,79 +604,23 @@ module internal Eng =
             result
 
 
-    let pointInOpPolygon (coordEqTol: float) (colinTolSqrd: float) (ptX: float) (ptY: float) (op: OutPt<'Z>) : PointInPolygonResult =
-        let inline crossProductSign args = Geo.crossProductSign colinTolSqrd args
+    let pointInOpPolygon (coordEqTol: float) (ptX: float) (ptY: float) (op: OutPt<'Z>) : PointInPolygonResult =
         if op === op.next || op.prev === op.next then
             PointInPolygonResult.IsOutside
         else
-            let mutable opL = op
-            let mutable op2 = opL
+            let mutable current = op
+            let mutable inside = false
+            let mutable onBoundary = false
             let mutable loopOn = true
-            while loopOn do
-                if Geo.isNotEqualWithin coordEqTol opL.y ptY then
-                    loopOn <- false
-                else
-                    opL <- opL.next
-                    if opL === op2 then
-                        loopOn <- false
-            if Geo.isEqualWithin coordEqTol opL.y ptY then
-                PointInPolygonResult.IsOutside
-            else
-                let mutable isAbove = opL.y < ptY
-                let startingAbove = isAbove
-                let mutable value = 0
-                let mutable result = PointInPolygonResult.IsOutside
-                let mutable settled = false
-                let mutable op2b = opL.next
-                while not settled && op2b =!= opL do
-                    if isAbove then
-                        while op2b =!= opL && op2b.y < ptY do
-                            op2b <- op2b.next
-                    else
-                        while (op2b =!= opL) && op2b.y > ptY do
-                            op2b <- op2b.next
-                    if op2b === opL then
-                        () // break outer
-                    else
-                        if Geo.isEqualWithin coordEqTol op2b.y ptY then
-                            if Geo.isEqualWithin coordEqTol op2b.x ptX ||(Geo.isEqualWithin coordEqTol op2b.y op2b.prev.y && ((ptX < op2b.prev.x) <> (ptX < op2b.x))) then
-                                result <- PointInPolygonResult.IsOn
-                                settled <- true
-                            else
-                                op2b <- op2b.next
-                                if op2b === opL then
-                                    () // break
-                        else
-                            if op2b.x <= ptX || op2b.prev.x <= ptX then
-                                if op2b.prev.x < ptX && op2b.x < ptX then
-                                    value <- 1 - value
-                                else
-                                    let d = crossProductSign (op2b.prev.x, op2b.prev.y, op2b.x, op2b.y, ptX, ptY)
-                                    if d = 0 then
-                                        result <- PointInPolygonResult.IsOn
-                                        settled <- true
-                                    elif (d < 0) = isAbove then
-                                        value <- 1 - value
-                            if not settled then
-                                isAbove <- not isAbove
-                                op2b <- op2b.next
-
-                if settled then
-                    result
-                elif isAbove = startingAbove then
-                    if value = 0 then
-                        PointInPolygonResult.IsOutside
-                    else
-                        PointInPolygonResult.IsInside
-                else
-                    let d = crossProductSign (op2b.prev.x, op2b.prev.y, op2b.x, op2b.y, ptX, ptY)
-                    if d = 0 then
-                        PointInPolygonResult.IsOn
-                    else
-                        if (d < 0) = isAbove then
-                            value <- 1 - value
-                        if value = 0 then
-                            PointInPolygonResult.IsOutside
-                        else
-                            PointInPolygonResult.IsInside
-
+            while loopOn && not onBoundary do
+                let prev = current.prev
+                if Geo.pointOnSegment coordEqTol (ptX, ptY, prev.x, prev.y, current.x, current.y) then
+                    onBoundary <- true
+                elif (prev.y > ptY) <> (current.y > ptY) then
+                    let side = Geo.crossProductSign (prev.x, prev.y, current.x, current.y, ptX, ptY)
+                    if (side > 0) = (current.y > prev.y) then inside <- not inside
+                current <- current.next
+                loopOn <- current =!= op
+            if onBoundary then PointInPolygonResult.IsOn
+            elif inside then PointInPolygonResult.IsInside
+            else PointInPolygonResult.IsOutside

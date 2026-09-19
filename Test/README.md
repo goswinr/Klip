@@ -123,6 +123,15 @@ slightly different number of (touching) contours. This is absorbed by raised per
 file already retunes for engine behavior. Test `181` needed a notably large count
 allowance and is flagged in a comment as worth revisiting.
 
+Each fixture runs twice: with the float defaults for area checks, and with explicit legacy
+`NearTopYToleranceCap`, `SmallTriangleTolerance`, and `SplitAreaTolerance` values of `2.0` for
+both count and area checks. The integer reference counts exclude small contours that the float
+defaults now preserve. Count and area assertion bounds have not been widened for this change.
+
+`GeometryToleranceTests.fs` and `tolerance-regressions.test.ts` exercise the actual geometry predicates
+for boundary distance, winding invariance, and proper crossings. `ToleranceUnitTests.fs` also checks
+coherent defaults and preservation of unit and subunit triangles without rounding their output.
+
 The F# tests round each solution's coordinates (`Helpers.roundPaths`, real `Math.Round`) before
 asserting on areas/point counts, so they compare against the integer values the fixtures expect.
 
@@ -130,8 +139,8 @@ The tolerance-related behavior is split deliberately (the individual properties 
 `[<Obsolete>]`-hidden expert overrides - the `Clipper64.Tolerance` property is the supported knob, and test
 files that poke the individual properties carry `#nowarn "44"`):
 
-- `Clipper64.CoordEqTolerance` controls near-equal coordinate comparisons.
-- `Clipper64.ColinearityTolerance` controls cross-product colinearity checks.
+- `Clipper64.CoordEqTolerance` controls near-equal coordinates and point-on-boundary distance.
+- `Clipper64.ColinearityTolerance` controls angular cleanup and joins; orientation signs and proper crossings do not use it.
 - `Clipper64.MergeVertexTolerance` controls adjacent-edge join distance.
 - `Snap.xAndY` / `Snap.xAndYSingle` are a standalone, opt-in pre-pass that cluster nearby input X and Y coordinates per-axis, mutating paths in place before clipping. The `Klipper.*` wrappers do not apply it automatically.
 - Structural scanline ordering and vertex Y ordering remain exact; horizontal-edge detection uses `Clipper64.HorizontalAngleTolerance`.

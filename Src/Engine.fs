@@ -90,12 +90,12 @@ type Clipper64<'Z>() =
     let mutable coordEqTol = 1e-5 // per-instance; exposed as CoordEqTolerance
     let mutable mergeVertexToleranceSqrd = coordEqTol * coordEqTol // defaults to the same value as coordEqTol but can be tuned independently; exposed as MergeVertexTolerance
 
-    let mutable colinTolSqrd = 1e-6  // 1e-3 * 1e-3 //  0.25 in Clipper2 // per-instance (squared); exposed as ColinearityTolerance
+    let mutable colinTolSqrd = 1e-6  // 1e-3 * 1e-3; per-instance cleanup/join angle, exposed as ColinearityTolerance
     let mutable horzAngleTol = 1e-5 // per-instance; exposed as HorizontalAngleTolerance, kept at 1/100 of the colinearity tolerance via AngleTolerance
     let mutable nearTopYToleranceFactor = 1e-4 // edge-height-relative part of the near-top join guard; tune via NearTopYToleranceFactor
-    let mutable nearTopYToleranceCap = 2.0    // absolute ceiling of the near-top join guard; tune via NearTopYToleranceCap
-    let mutable smallTriangleTol = 2.0 // per-instance; exposed as SmallTriangleTolerance (2 grid units in integer Clipper2)
-    let mutable splitAreaTol = 2.0     // per-instance (area units); exposed as SplitAreaTolerance
+    let mutable nearTopYToleranceCap = coordEqTol    // absolute ceiling of the near-top join guard; tune via NearTopYToleranceCap
+    let mutable smallTriangleTol = coordEqTol // per-instance; exposed as SmallTriangleTolerance
+    let mutable splitAreaTol = coordEqTol * coordEqTol     // per-instance (area units); exposed as SplitAreaTolerance
 
     // closed paths should always return a Positive orientation
     // except when ReverseSolution == true
@@ -306,7 +306,7 @@ type Clipper64<'Z>() =
         let mutable finished = false
         let mutable loopOn = true
         while loopOn do
-            match Eng.pointInOpPolygon coordEqTol colinTolSqrd op.x op.y op2 with
+            match Eng.pointInOpPolygon coordEqTol op.x op.y op2 with
             | PointInPolygonResult.IsOutside ->
                 if pip = PointInPolygonResult.IsOutside then
                     result <- false
@@ -329,7 +329,7 @@ type Clipper64<'Z>() =
         if finished then
             result
         else
-            Geo.path2ContainsPath1 coordEqTol colinTolSqrd (getCleanPath op1) (getCleanPath op2)
+            Geo.path2ContainsPath1 coordEqTol (getCleanPath op1) (getCleanPath op2)
 
     // #endregion
     // #region Horizontal segments / joins
@@ -578,16 +578,16 @@ type Clipper64<'Z>() =
         if isNotEqualTol newcomer.curX resident.curX then
             newcomer.curX > resident.curX
         else
-            let d = Geo.crossProductSign colinTolSqrd (resident.topX, resident.topY, newcomer.botX, newcomer.botY, newcomer.topX, newcomer.topY)
+            let d = Geo.crossProductSign (resident.topX, resident.topY, newcomer.botX, newcomer.botY, newcomer.topX, newcomer.topY)
             if d <> 0 then
                 d < 0
             else
                 if (not (Eng.isMaximaA resident)) && resident.topY > newcomer.topY then
                     let nextResident = Eng.nextVertex resident
-                    Geo.crossProductSign colinTolSqrd (newcomer.botX, newcomer.botY, resident.topX, resident.topY, nextResident.x, nextResident.y) <= 0
+                    Geo.crossProductSign (newcomer.botX, newcomer.botY, resident.topX, resident.topY, nextResident.x, nextResident.y) <= 0
                 elif (not (Eng.isMaximaA newcomer)) && newcomer.topY > resident.topY then
                     let nextNewcomer = Eng.nextVertex newcomer
-                    Geo.crossProductSign colinTolSqrd (newcomer.botX, newcomer.botY, newcomer.topX, newcomer.topY, nextNewcomer.x, nextNewcomer.y) >= 0
+                    Geo.crossProductSign (newcomer.botX, newcomer.botY, newcomer.topX, newcomer.topY, nextNewcomer.x, nextNewcomer.y) >= 0
                 else
                     let y = newcomer.botY
                     let newcomerIsLeft = newcomer.isLeftBound
@@ -595,10 +595,10 @@ type Clipper64<'Z>() =
                         newcomer.isLeftBound
                     elif resident.isLeftBound <> newcomerIsLeft then
                         newcomerIsLeft
-                    elif Geo.isColinear (colinTolSqrd, (Eng.prevPrevVertex resident).x, (Eng.prevPrevVertex resident).y, resident.botX, resident.botY, resident.topX, resident.topY) then
+                    elif Geo.crossProductSign ((Eng.prevPrevVertex resident).x, (Eng.prevPrevVertex resident).y, resident.botX, resident.botY, resident.topX, resident.topY) = 0 then
                         true
                     else
-                        let cross = Geo.crossProductSign colinTolSqrd (
+                        let cross = Geo.crossProductSign (
                                         (Eng.prevPrevVertex resident).x,
                                         (Eng.prevPrevVertex resident).y,
                                         newcomer.botX,
@@ -1911,8 +1911,8 @@ type Clipper64<'Z>() =
 
         // areaOutPt/areaTriangle return DOUBLE areas, so `2.0 * splitAreaTol` is an area
         // of splitAreaTol, and `splitAreaTol` below is an area of splitAreaTol/2.
-        // (Clipper2 C# uses double-area literals 2 and 1 here; this port keeps its
-        // historical 4.0/2.0 defaults via splitAreaTol = 2.0.)
+        // (Clipper2 C# uses double-area literals 2 and 1 here; the float port
+        // keeps that convention with splitAreaTol defaulting to Tolerance squared.)
         if absDoubleArea1 < 2.0 * splitAreaTol then
             outrec.pts <- null'()
         else
@@ -1979,7 +1979,7 @@ type Clipper64<'Z>() =
                 if (isNotNull op2.next
                     && isNotNull op2.next.next
                     && Eng.boundingBoxesOverlap (op2.prev.x, op2.prev.y, op2.x, op2.y, op2.next.x, op2.next.y, op2.next.next.x, op2.next.next.y)
-                    && Geo.segsIntersectNotInclusive (colinTolSqrd, op2.prev.x, op2.prev.y, op2.x, op2.y, op2.next.x, op2.next.y, op2.next.next.x, op2.next.next.y) ) then
+                    && Geo.segsIntersectNotInclusive (op2.prev.x, op2.prev.y, op2.x, op2.y, op2.next.x, op2.next.y, op2.next.next.x, op2.next.next.y) ) then
                             if op2 === outrec.pts || op2.next === outrec.pts then
                                 outrec.pts <- outrec.pts.prev
                             doSplitOp(outrec, op2)
@@ -2398,7 +2398,7 @@ type Clipper64<'Z>() =
     /// dominates - a reason to normalize coordinate magnitude before clipping.
     /// Setting it to 0 disables the absolute window entirely (the guard then only triggers
     /// strictly above the top vertex).
-    /// Default 2.0. Valid range 0.0 .. 1e12. Per-instance setting.
+    /// Default 1e-5, matching <see cref="Tolerance"/>. Valid range 0.0 .. 1e12. Per-instance setting.
     /// Prefer setting it via <see cref="Tolerance"/> (which sets it to the given absolute
     /// tolerance) rather than individually.
     /// </remarks>
@@ -2422,7 +2422,7 @@ type Clipper64<'Z>() =
     /// it should be scaled to the coordinate magnitude of the input (a triangle spanning 1.9
     /// units is noise at coordinate magnitude ~1e6, but real geometry at sub-unit magnitudes).
     /// Set it to 0 to keep all triangles.
-    /// Default 2.0. Valid range 0.0 .. 1e12. Per-instance setting: carried as an explicit
+    /// Default 1e-5, matching <see cref="Tolerance"/>. Valid range 0.0 .. 1e12. Per-instance setting: carried as an explicit
     /// argument into <c>buildPath</c> / <c>isValidClosedPath</c>, with no module-global.
     /// Prefer <see cref="Tolerance"/> (which sets it to the given absolute tolerance);
     /// set this property individually only to deviate, e.g. 0 to keep every triangle.
@@ -2447,7 +2447,7 @@ type Clipper64<'Z>() =
     /// scales with the <b>square</b> of the coordinate magnitude, so when adjusting tolerances to
     /// input scale use ~M² rather than ~M (where M is the max absolute coordinate).
     /// Set it to 0 to keep all rings and splits regardless of area.
-    /// Default 2.0. Valid range 0.0 .. 1e24. Per-instance setting.
+    /// Default 1e-10, the square of <see cref="Tolerance"/>. Valid range 0.0 .. 1e24. Per-instance setting.
     /// Prefer <see cref="Tolerance"/>, which sets this to the square of the given
     /// absolute tolerance and so handles the quadratic scaling for you.
     /// </remarks>
@@ -2473,18 +2473,18 @@ type Clipper64<'Z>() =
     /// Smaller values require straighter edges; larger values merge or clean more
     /// nearly-colinear vertices but may hide very narrow angles. This also lets colinear
     /// cleanup detect and close nearly 180-degree U-turn spike vertices.
-    /// It affects cross-product signs, point-on-edge tests, active-edge ordering tie breaks,
-    /// the angular gate of adjacent-edge joins, and colinear cleanup. Conceptually the angular
+    /// It affects the angular gate of adjacent-edge joins and colinear cleanup, but not
+    /// orientation signs, containment, or proper segment crossings. Conceptually the angular
     /// partner of <see cref="CoordEqTolerance"/> (which is a distance).
     /// Raise it to flatten near-straight edges that otherwise leave stray micro-vertices.
-    /// Default 1e-3 (0.5 in Clipper2). Valid range 1e-16 .. 1e6. Per-instance setting:
+    /// Default 1e-3. Valid range 1e-16 .. 1e6. Per-instance setting:
     /// carried as an explicit argument into the colinearity primitives, with no module-global.
     /// Dimensionless, so it is not touched by <see cref="Tolerance"/> and needs no rescaling.
     /// </remarks>
     [<Obsolete("Expert override, hidden from the public API surface (but still functional) - normally set via the AngleTolerance property (in degrees) instead.")>]
     member _.ColinearityTolerance
         with get() : float =
-            Math.Sqrt colinTolSqrd // 0.25 as squared literal in Clipper2
+            Math.Sqrt colinTolSqrd
         and set(v: float) : unit =
             if v >= 1e-16 && v <= 1e6 then
                 colinTolSqrd <- v * v
@@ -2532,8 +2532,8 @@ type Clipper64<'Z>() =
     /// </summary>
     /// <remarks>
     /// The setter converts the degrees to <c>sin θ</c> and assigns it to the internal
-    /// colinearity tolerance (which gates cross-product signs, point-on-edge tests,
-    /// adjacent-edge joins and colinear cleanup), and one hundredth of it to the internal
+    /// colinearity tolerance (which gates adjacent-edge joins and colinear cleanup),
+    /// and one hundredth of it to the internal
     /// horizontal-angle tolerance (which decides when a near-horizontal edge takes the
     /// horizontal code path in the sweep; additionally capped at <see cref="CoordEqTolerance"/>
     /// endpoint-Y difference - see <see cref="HorizontalAngleTolerance"/>). Horizontality is
@@ -2568,7 +2568,8 @@ type Clipper64<'Z>() =
     /// dimensionless angle tolerances are unaffected (set those via
     /// <see cref="AngleTolerance"/>), though the point-coincidence distance set here also caps
     /// the horizontality test (see <see cref="HorizontalAngleTolerance"/>).
-    /// The getter returns the current point-coincidence distance.
+    /// The getter returns the current point-coincidence distance. The default is 1e-5,
+    /// with all four distance thresholds initialized to it and the split-area threshold to its square.
     /// Valid range 0.0 .. 1e12; 0.0 makes the comparisons exact. Per-instance setting.
     /// </remarks>
     member _.Tolerance

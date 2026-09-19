@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Fixed
+- Separate topology orientation signs from the colinearity cleanup angle: shallow turns no longer hide proper segment crossings or change containment with polygon winding. Both path and output-ring containment use absolute boundary distance and exact ray crossings, also preventing a near-horizontal boundary query from looping.
+- Initialize all distance tolerances from the default `Tolerance = 1e-5`, and the split-area tolerance from its square. Default clipping now preserves unit and subunit triangles, and assigning `c.Tolerance <- c.Tolerance` leaves all thresholds unchanged.
+
+### Added
+- Regression tests for long-edge containment, winding and start-vertex invariance, sloped and axis-aligned boundary distances, proper crossings versus endpoint contacts, and consistent float tolerance defaults.
+
 ## [3.1.1] - 2026-09-07
 ### Fixed
 - Packaging: the Fable source files are now packed from the Src folder instead of the repository root, so the package no longer ships test sources or generated obj files.
