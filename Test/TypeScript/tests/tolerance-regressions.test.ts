@@ -89,6 +89,52 @@ describe('Float topology and tolerance defaults', () => {
     expect(thresholds(explicit)).toEqual(thresholds(defaults));
   });
 
+  test('optional constructor angles match the setter, including exact mode and the maximum', () => {
+    const angularThresholds = (c: any) => [
+      Engine.Clipper64$1__get_AngleTolerance(c),
+      Engine.Clipper64$1__get_ColinearityTolerance(c),
+      Engine.Clipper64$1__get_HorizontalAngleTolerance(c),
+    ];
+    const defaultAngle = Engine.Clipper64$1__get_AngleTolerance(Engine.Clipper64$1_$ctor());
+    for (const angle of [0, 0.05, defaultAngle, Math.asin(0.1)*180/Math.PI]) {
+      const fromSetter = Engine.Clipper64$1_$ctor();
+      Engine.Clipper64$1__set_AngleTolerance_5E38073B(fromSetter, angle);
+      const both = Engine.Clipper64$1_$ctor_75003100(0.25, angle);
+      const angleOnly = Engine.Clipper64$1_$ctor_75003100(undefined, angle);
+      expect(angularThresholds(both)).toEqual(angularThresholds(fromSetter));
+      expect(angularThresholds(angleOnly)).toEqual(angularThresholds(fromSetter));
+      expect(Engine.Clipper64$1__get_Tolerance(both)).toBe(0.25);
+      expect(Engine.Clipper64$1__get_SplitAreaTolerance(both)).toBe(0.0625);
+      expect(Engine.Clipper64$1__get_Tolerance(angleOnly)).toBe(1e-5);
+    }
+  });
+
+  test('omitting the optional angle retains the exact existing defaults', () => {
+    for (const tolerance of [undefined, 0.25]) {
+      const c = Engine.Clipper64$1_$ctor_75003100(tolerance, undefined);
+      expect(Engine.Clipper64$1__get_ColinearityTolerance(c)).toBe(1e-3);
+      expect(Engine.Clipper64$1__get_HorizontalAngleTolerance(c)).toBe(1e-5);
+    }
+  });
+
+  test.each([-Number.MIN_VALUE, -1, 5.74, NaN, Infinity, -Infinity])('constructor rejects angle %s', angle => {
+    expect(() => Engine.Clipper64$1_$ctor_75003100(undefined, angle)).toThrow();
+    expect(() => Engine.Clipper64$1_$ctor_75003100(1e-6, angle)).toThrow();
+  });
+
+  test('constructor angle survives ClearAll and remains mutable after adding paths', () => {
+    const c = Engine.Clipper64$1_$ctor_75003100(1e-6, 0.25);
+    Engine.Clipper64$1__AddSubject_2ABD14E4(c, [makePath([0, 0, 1, 0, 0, 1])]);
+    Engine.Clipper64$1__ClearAll(c);
+    expect(Engine.Clipper64$1__get_AngleTolerance(c)).toBeCloseTo(0.25, 14);
+    Engine.Clipper64$1__AddSubject_2ABD14E4(c, [makePath([0, 0, 1, 0, 0, 1])]);
+    Engine.Clipper64$1__set_AngleTolerance_5E38073B(c, 0);
+    expect(Engine.Clipper64$1__get_ColinearityTolerance(c)).toBe(0);
+    expect(Engine.Clipper64$1__get_HorizontalAngleTolerance(c)).toBe(0);
+    expect(Engine.Clipper64$1__get_Tolerance(c)).toBe(1e-6);
+    expect(Engine.Clipper64$1__Execute_Z140889D1(c, 2, 1)[0]).toHaveLength(1);
+  });
+
   test.each([0, Number.MIN_VALUE, 1e-200, 0.25, 1e12])('constructor tolerance %s initializes distance and area thresholds', tolerance => {
     const c = Engine.Clipper64$1_$ctor_5E38073B(tolerance);
     expect(Engine.Clipper64$1__get_Tolerance(c)).toBe(tolerance);

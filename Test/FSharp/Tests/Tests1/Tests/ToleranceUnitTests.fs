@@ -60,6 +60,54 @@ type ToleranceUnitTests () =
         Assert.AreEqual(thresholds defaults, thresholds explicit)
 
     [<TestMethod>]
+    member _.OptionalConstructorAngleMatchesTheSetterIncludingBothRangeEndpoints () =
+        let defaults = Clipper64<unit>()
+        for angle in [0.; 0.05; defaults.AngleTolerance; Math.Asin(0.1) * 180. / Math.PI] do
+            let fromSetter = Clipper64<unit>(tolerance = 0.25)
+            fromSetter.AngleTolerance <- angle
+            let explicit = Clipper64<unit>(tolerance = 0.25, angleTolerance = angle)
+            let angleOnly = Clipper64<unit>(angleTolerance = angle)
+            for c in [explicit; angleOnly] do
+                Assert.AreEqual(fromSetter.AngleTolerance, c.AngleTolerance)
+                Assert.AreEqual(fromSetter.ColinearityTolerance, c.ColinearityTolerance)
+                Assert.AreEqual(fromSetter.HorizontalAngleTolerance, c.HorizontalAngleTolerance)
+            Assert.AreEqual(0.25, explicit.Tolerance)
+            Assert.AreEqual(0.0625, explicit.SplitAreaTolerance)
+            Assert.AreEqual(defaults.Tolerance, angleOnly.Tolerance)
+            Assert.AreEqual(defaults.SplitAreaTolerance, angleOnly.SplitAreaTolerance)
+
+    [<TestMethod>]
+    member _.OmittingConstructorAnglePreservesDefaultsWithEitherCoordinateTolerance () =
+        let defaults = Clipper64<unit>()
+        for c in [Clipper64<unit>(tolerance = 0.25)
+                  Clipper64<unit>(?angleTolerance = None)
+                  Clipper64<unit>(tolerance = 0.25, ?angleTolerance = None)] do
+            Assert.AreEqual(defaults.AngleTolerance, c.AngleTolerance)
+            Assert.AreEqual(1e-3, c.ColinearityTolerance)
+            Assert.AreEqual(1e-5, c.HorizontalAngleTolerance)
+
+    [<TestMethod>]
+    member _.ConstructorRejectsInvalidAnglesWithTheSameRangeAsTheSetter () =
+        for invalid in [-Double.Epsilon; -1.; 5.74; Double.NaN; Double.PositiveInfinity; Double.NegativeInfinity] do
+            let error = Assert.ThrowsException<ArgumentException>(Action(fun () -> Clipper64<unit>(angleTolerance = invalid) |> ignore))
+            Assert.AreEqual("angleTolerance", error.ParamName)
+            Assert.ThrowsException<ArgumentException>(Action(fun () -> Clipper64<unit>(tolerance = 1e-6, angleTolerance = invalid) |> ignore)) |> ignore
+
+    [<TestMethod>]
+    member _.ConstructorAngleCanBeChangedAfterIngestionAndPersistsAcrossClearAll () =
+        let c = Clipper64<unit>(tolerance = 1e-6, angleTolerance = 0.25)
+        c.AddSubject(paths [path [|0.;0.; 1.;0.; 0.;1.|]])
+        c.ClearAll()
+        Assert.AreEqual(0.25, c.AngleTolerance, 1e-15)
+        c.AddSubject(paths [path [|0.;0.; 1.;0.; 0.;1.|]])
+        c.AngleTolerance <- 0.
+        let result, _ = c.Execute(ClipType.Union, FillRule.NonZero)
+        Assert.AreEqual(1, result.Count)
+        Assert.AreEqual(0., c.ColinearityTolerance)
+        Assert.AreEqual(0., c.HorizontalAngleTolerance)
+        Assert.AreEqual(1e-6, c.Tolerance)
+
+    [<TestMethod>]
     member _.CoordinateTolerancePropertiesHaveNoPublicOrPrivateSetter () =
         for name in ["Tolerance"; "CoordEqTolerance"] do
             let property = typeof<Clipper64<unit>>.GetProperty name

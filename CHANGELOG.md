@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initialize all distance tolerances from the default `Tolerance = 1e-5`, and the split-area tolerance from its square. Default clipping now preserves unit and subunit triangles.
 
 ### Added
+- Optional `angleTolerance` constructor argument in degrees, usable with or without a coordinate `tolerance`. It initializes the same two angular thresholds as the mutable `AngleTolerance` property, with identical validation. Omitted arguments retain the existing defaults; the parameterless and distance-only constructor overloads remain available. Added .NET and JavaScript regressions for defaults, range endpoints, invalid angles, and subsequent property changes.
 - Constructor tolerance regressions covering validation, read-only properties, initialization of derived thresholds, input deduplication, reuse after `ClearAll`, and mutable execution overrides on .NET and JavaScript.
 - Descriptive .NET and JavaScript regressions for tolerance round trips, lifecycle and range boundaries, nontransitive chains, metadata retention, snapping order, translated and extreme-scale geometry, and determinant cancellation.
 - Regression tests for long-edge containment, winding and start-vertex invariance, sloped and axis-aligned boundary distances, proper crossings versus endpoint contacts, and consistent float tolerance defaults.

@@ -42,10 +42,15 @@ type ZCallback64<'Z> =
 
 /// Polygon clipping with floating-point coordinates. The constructor's absolute
 /// tolerance is fixed for this instance and initializes the distance thresholds
-/// and their squared area threshold. Use the parameterless constructor for 1e-5.
-type Clipper64<'Z>(tolerance: float) =
+/// and their squared area threshold (default 1e-5). The optional angleTolerance
+/// is in degrees and remains adjustable through AngleTolerance after construction.
+/// Coordinate tolerance determines which input vertices survive AddPaths; discarded
+/// vertices cannot be recovered by changing a setting later. Angle tolerance is only
+/// applied during execution, so it can change between runs over the retained input.
+type Clipper64<'Z>(?tolerance: float, ?angleTolerance: float) =
 
     let coordEqTol =
+        let tolerance = defaultArg tolerance 1e-5
         if tolerance >= 0.0 && tolerance <= 1e12 then tolerance
         else invalidArg "tolerance" $"Tolerance must be finite and between 0.0 and 1e12. Got {tolerance}."
 
@@ -95,6 +100,18 @@ type Clipper64<'Z>(tolerance: float) =
 
     let mutable colinTolerance = 1e-3 // per-instance cleanup/join angle, exposed as ColinearityTolerance
     let mutable horzAngleTol = 1e-5 // per-instance; exposed as HorizontalAngleTolerance, kept at 1/100 of the colinearity tolerance via AngleTolerance
+
+    let setAngleTolerance argumentName degrees =
+        if degrees >= 0.0 && degrees <= Math.Asin(0.1) * 180.0 / Math.PI then
+            if degrees <> Math.Asin colinTolerance * 180.0 / Math.PI then
+                let s = min 0.1 (Math.Sin(degrees * Math.PI / 180.0))
+                colinTolerance <- s
+                horzAngleTol <- s / 100.0
+        else
+            invalidArg argumentName $"Angle tolerance must be between 0.0 and asin(0.1) degrees (about 5.739). Got {degrees}."
+
+    do angleTolerance |> Option.iter (setAngleTolerance "angleTolerance")
+
     let mutable nearTopYToleranceFactor = 1e-4 // edge-height-relative part of the near-top join guard; tune via NearTopYToleranceFactor
     let mutable nearTopYToleranceCap = coordEqTol    // absolute ceiling of the near-top join guard; tune via NearTopYToleranceCap
     let mutable smallTriangleTol = coordEqTol // per-instance; exposed as SmallTriangleTolerance
@@ -2153,6 +2170,9 @@ type Clipper64<'Z>(tolerance: float) =
 
 
     let addPathsToVertexList (paths: Paths64<'Z>, pathType: PathType, isOpen: bool) : unit =
+        // Ingestion permanently deduplicates the stored vertex chains using coordEqTol.
+        // This is why coordinate tolerance is constructor-only. Angular classification
+        // happens later on execution state and does not discard these stored inputs.
         for i = 0 to paths |> Rarr.lastIdx do
             let path = Rarr.getIdx i paths
             if path.IsEmpty then
@@ -2266,7 +2286,10 @@ type Clipper64<'Z>(tolerance: float) =
 
 
     /// Creates an executor with absolute coordinate tolerance 1e-5.
-    new() = Clipper64<'Z>(1e-5)
+    new() = Clipper64<'Z>(?tolerance = None, ?angleTolerance = None)
+
+    /// Creates an executor with the given coordinate tolerance and the default angle.
+    new(tolerance: float) = Clipper64<'Z>(?tolerance = Some tolerance, ?angleTolerance = None)
 
     member _.HasOpenPaths
         with get() : bool = hasOpenPaths
@@ -2354,7 +2377,8 @@ type Clipper64<'Z>(tolerance: float) =
     /// coordinate-equality tolerance - every coincidence test (including the <c>Geo.pointInPolygon</c>
     /// containment checks used by the sweep) takes this value as an explicit argument.
     /// Read-only alias for <see cref="Tolerance"/>. Supply the absolute tolerance when
-    /// constructing this instance; it remains fixed even after ClearAll.
+    /// constructing this instance; it remains fixed even after ClearAll. Unlike the
+    /// execution-only angle, this distance already removes near duplicates in AddPaths.
     /// </remarks>
     [<Obsolete("Read-only alias for Tolerance. Supply the tolerance argument when constructing Clipper64.")>]
     member _.CoordEqTolerance : float = coordEqTol
@@ -2525,9 +2549,16 @@ type Clipper64<'Z>(tolerance: float) =
 
     /// <summary>
     /// The angle tolerance in degrees: the turn angle below which three points count as colinear.
-    /// Setting it drives both internal dimensionless angle tolerances at once.
+    /// Setting it drives both internal dimensionless angle tolerances at once. The optional
+    /// constructor argument angleTolerance initializes this property using the same rules.
     /// </summary>
     /// <remarks>
+    /// AddPaths retains input vertices without applying this angle. Each Execute builds
+    /// fresh active edges and output rings, where the angle controls horizontal handling,
+    /// joins and colinear cleanup. Changing it between executions therefore reprocesses
+    /// the retained input with the new angle, without requiring the paths to be re-added.
+    /// Set it before execution begins, including when paths have already been added.
+    ///
     /// The setter converts the degrees to <c>sin θ</c> and assigns it to the internal
     /// colinearity tolerance (which gates adjacent-edge joins and colinear cleanup),
     /// and one hundredth of it to the internal
@@ -2549,13 +2580,7 @@ type Clipper64<'Z>(tolerance: float) =
         with get() : float =
             Math.Asin colinTolerance * 180.0 / Math.PI
         and set(degrees: float) : unit =
-            if degrees >= 0.0 && degrees <= Math.Asin(0.1) * 180.0 / Math.PI then
-                if degrees <> Math.Asin colinTolerance * 180.0 / Math.PI then
-                    let s = min 0.1 (Math.Sin(degrees * Math.PI / 180.0))
-                    colinTolerance <- s
-                    horzAngleTol <- s / 100.0
-            else
-                invalidArg "AngleTolerance" $"Angle tolerance must be between 0.0 and asin(0.1) degrees (about 5.739). Got {degrees}."
+            setAngleTolerance "AngleTolerance" degrees
 
     /// <summary>
     /// The immutable absolute unit tolerance: the distance (in coordinate units) below which
@@ -2569,6 +2594,10 @@ type Clipper64<'Z>(tolerance: float) =
     /// <see cref="AngleTolerance"/>), though the point-coincidence distance also caps
     /// the horizontality test (see <see cref="HorizontalAngleTolerance"/>).
     /// Valid range 0.0 .. 1e12; 0.0 makes coordinate comparisons exact. Default 1e-5.
+    /// AddPaths immediately removes near-duplicate vertices using this distance. A later
+    /// change could neither recover discarded vertices nor make the retained chains match
+    /// deduplication at the new distance; execution would use a different coincidence rule
+    /// from ingestion. AngleTolerance does not participate in that irreversible step.
     /// ClearAll preserves this value. Create a new instance to use a different tolerance,
     /// since input deduplication cannot recover vertices discarded at ingestion.
     /// </remarks>

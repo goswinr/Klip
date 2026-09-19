@@ -164,6 +164,8 @@ tuning:
 - `PreserveColinear`: keep removable colinear vertices in closed solutions.
 - Constructor `tolerance`: initializes all five scale-dependent tolerances from one absolute distance.
   `Tolerance` reports this fixed value; see [Tolerances and scaling](#tolerances-and-scaling).
+- Optional constructor `angleTolerance`: initializes the angle in degrees. The `AngleTolerance`
+  property remains adjustable after construction.
 - `ReverseSolution`: reverses output orientation.
 - `ZCallback`: computes metadata for vertices created at intersections.
 
@@ -188,13 +190,20 @@ Coordinate tolerance is **constructor-only**: input ingestion discards near-dupl
 Both `Tolerance` and `CoordEqTolerance` are read-only. `ClearAll()` removes geometry while retaining
 the constructor tolerance and execution settings. Create a new instance and re-add the original
 paths to use a different coordinate tolerance. Repeated execution with the same inputs is supported.
+Changing the distance on an existing instance could not recover vertices already discarded during
+ingestion. `AngleTolerance` is applied to fresh execution state and output geometry, leaving the
+stored input vertices intact, so it can be changed between executions without re-adding the paths.
 
 ```fsharp
-let c = Clipper64<unit>(tolerance = 1e-6)
-c.AngleTolerance <- 0.05 // execution-only settings remain adjustable
+let c = Clipper64<unit>(tolerance = 1e-6, angleTolerance = 0.05)
 c.AddSubject(subject)
 let closed, opened = c.Execute(ClipType.Union, FillRule.NonZero)
 ```
+
+Both constructor arguments may be omitted. `Clipper64<unit>(angleTolerance = 0.05)` uses
+the default coordinate tolerance of `1e-5`. Omitting the angle retains the default of about
+`0.057295789` degrees (`sin(angle) = 1e-3`). The constructor angle has the same valid range
+and effect as setting `AngleTolerance`; that property remains mutable, including after adding paths.
 
 Migrate `c.Tolerance <- t` or `c.CoordEqTolerance <- t` to the constructor argument.
 It initializes all five thresholds; apply any separate execution-only expert overrides afterwards.
