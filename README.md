@@ -254,8 +254,6 @@ For .NET:
 
 ```bash
 dotnet build
-dotnet test Test/FSharp/Tests/Tests1/Tests1.fsproj
-dotnet test Test/FSharp/Tests/Tests2/TestsZ.fsproj
 ```
 
 For JavaScript:
@@ -266,7 +264,6 @@ dotnet tool restore
 npm install
 npm run clean   # clean previous Fable output
 npm run build   # F# → JavaScript via Fable, then vite build
-npm test        # vitest --run, against the compiled bundle
 npm run buildts # optional: F# → TypeScript via Fable, then tsc and vite build
 cd ../..
 ```
@@ -274,6 +271,23 @@ cd ../..
 The JavaScript bundle ends up in `Test/TypeScript/_dist/Klip.mjs` and is what the Vitest suite imports - rebuild
 before testing after any F# source change. The TypeScript/Fable build emits a separate bundle under
 `Test/TypeScript/_distTS/Klip.mjs`.
+
+## Testing
+
+For .NET:
+
+```bash
+dotnet test Test/FSharp/Tests/Tests1/Tests1.fsproj
+dotnet test Test/FSharp/Tests/Tests2/TestsZ.fsproj
+```
+
+For JavaScript (after building, per above):
+
+```bash
+cd Test/TypeScript
+npm test        # vitest --run, against the compiled bundle
+cd ../..
+```
 
 ## Performance
 
