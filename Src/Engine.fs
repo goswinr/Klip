@@ -2483,7 +2483,7 @@ type Clipper64<'Z>() =
     /// orientation signs, containment, or proper segment crossings. Conceptually the angular
     /// partner of <see cref="CoordEqTolerance"/> (which is a distance).
     /// Raise it to flatten near-straight edges that otherwise leave stray micro-vertices.
-    /// Default 1e-3. Valid range 1e-16 .. 1e6. Per-instance setting:
+    /// Default 1e-3. Valid range 0.0 .. 0.1. Per-instance setting:
     /// carried as an explicit argument into the colinearity primitives, with no module-global.
     /// Dimensionless, so it is not touched by <see cref="Tolerance"/> and needs no rescaling.
     /// </remarks>
@@ -2492,10 +2492,10 @@ type Clipper64<'Z>() =
         with get() : float =
             Math.Sqrt colinTolSqrd
         and set(v: float) : unit =
-            if v >= 1e-16 && v <= 1e6 then
+            if v >= 0.0 && v <= 0.1 then
                 colinTolSqrd <- v * v
             else
-                invalidArg "ColinearityTolerance" $"Colinearity tolerance must be between 1e-16 and 1e6. Got {v}."
+                invalidArg "ColinearityTolerance" $"Colinearity tolerance must be between 0.0 and 0.1. Got {v}."
 
     /// <summary>
     /// Dimensionless tolerance for deciding whether an edge is horizontal: an edge counts as
@@ -2546,23 +2546,25 @@ type Clipper64<'Z>() =
     /// kept 100x tighter because classifying an edge as horizontal changes how the scanbeam
     /// processes it - too loose flattens genuine slopes and corrupts the sweep.
     /// The getter returns the current colinearity turn angle in degrees.
+    /// Reassigning that value is a no-op, preserving expert horizontal overrides.
     /// Both derived tolerances are dimensionless (scale-free), so - unlike
     /// <see cref="Tolerance"/> - this needs no rescaling to the input's coordinate magnitude.
     /// The defaults already follow this coupling: colinearity angle ~0.057 degrees
     /// (sin θ = 1e-3), horizontal-angle tolerance 1e-5.
-    /// Valid range 0.0 .. 5.7 degrees; 0.0 makes both comparisons exact, and the upper
+    /// Valid range 0.0 .. asin(0.1) degrees (about 5.739); 0.0 makes both comparisons exact, and the upper
     /// bound keeps the derived horizontal tolerance within its safe limit of 1e-3.
     /// </remarks>
     member _.AngleTolerance
         with get() : float =
             Math.Asin(min 1.0 (Math.Sqrt colinTolSqrd)) * 180.0 / Math.PI
         and set(degrees: float) : unit =
-            if degrees >= 0.0 && degrees <= 5.7 then
-                let s = Math.Sin(degrees * Math.PI / 180.0)
-                colinTolSqrd <- s * s
-                horzAngleTol <- s / 100.0
+            if degrees >= 0.0 && degrees <= Math.Asin(0.1) * 180.0 / Math.PI then
+                if degrees <> Math.Asin(Math.Sqrt colinTolSqrd) * 180.0 / Math.PI then
+                    let s = min 0.1 (Math.Sin(degrees * Math.PI / 180.0))
+                    colinTolSqrd <- s * s
+                    horzAngleTol <- s / 100.0
             else
-                invalidArg "AngleTolerance" $"Angle tolerance must be between 0.0 and 5.7 degrees. Got {degrees}."
+                invalidArg "AngleTolerance" $"Angle tolerance must be between 0.0 and asin(0.1) degrees (about 5.739). Got {degrees}."
 
     /// <summary>
     /// The global absolute unit tolerance: the distance (in coordinate units) below which
@@ -2574,6 +2576,7 @@ type Clipper64<'Z>() =
     /// dimensionless angle tolerances are unaffected (set those via
     /// <see cref="AngleTolerance"/>), though the point-coincidence distance set here also caps
     /// the horizontality test (see <see cref="HorizontalAngleTolerance"/>).
+    /// Reassigning the reported value is a no-op, preserving expert overrides.
     /// The getter returns the current point-coincidence distance. The default is 1e-5,
     /// with all four distance thresholds initialized to it and the split-area threshold to its square.
     /// Valid range 0.0 .. 1e12; 0.0 makes the comparisons exact. Per-instance setting.
@@ -2585,11 +2588,12 @@ type Clipper64<'Z>() =
         and set(tolerance: float) : unit =
             if tolerance >= 0.0 && tolerance <= 1e12 then
                 checkCoordinateToleranceChange tolerance
-                coordEqTol <- tolerance
-                mergeVertexToleranceSqrd <- tolerance * tolerance
-                nearTopYToleranceCap <- tolerance
-                smallTriangleTol <- tolerance
-                splitAreaTol <- tolerance * tolerance
+                if tolerance <> coordEqTol then
+                    coordEqTol <- tolerance
+                    mergeVertexToleranceSqrd <- tolerance * tolerance
+                    nearTopYToleranceCap <- tolerance
+                    smallTriangleTol <- tolerance
+                    splitAreaTol <- tolerance * tolerance
             else
                 invalidArg "Tolerance" $"Tolerance must be between 0.0 and 1e12. Got {tolerance}."
 

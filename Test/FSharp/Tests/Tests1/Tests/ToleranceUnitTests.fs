@@ -63,6 +63,32 @@ type ToleranceUnitTests () =
         Assert.AreEqual(before, after, "assigning the reported default must not change hidden culling or join thresholds")
 
     [<TestMethod>]
+    member _.ReassigningReportedTolerancesPreservesExpertOverrides () =
+        let c = Clipper64<unit>()
+        c.MergeVertexTolerance <- 0.25
+        c.HorizontalAngleTolerance <- 1e-7
+        c.Tolerance <- c.Tolerance
+        c.AngleTolerance <- c.AngleTolerance
+        Assert.AreEqual(0.25, c.MergeVertexTolerance)
+        Assert.AreEqual(1e-7, c.HorizontalAngleTolerance)
+
+    [<TestMethod>]
+    member _.AngleAndSineToleranceRangesRoundTripIncludingExactMode () =
+        let c = Clipper64<unit>()
+        c.AngleTolerance <- 0.
+        c.ColinearityTolerance <- c.ColinearityTolerance
+        Assert.AreEqual(0., c.ColinearityTolerance)
+        for sine in [0.; 1e-3; 0.05; 0.1] do
+            c.ColinearityTolerance <- sine
+            let angle = c.AngleTolerance
+            c.AngleTolerance <- angle
+            Assert.AreEqual(sine, c.ColinearityTolerance, 1e-16)
+        for invalid in [-1.; 0.10001; 1.; Double.NaN; Double.PositiveInfinity] do
+            Assert.ThrowsException<ArgumentException>(Action(fun () -> c.ColinearityTolerance <- invalid)) |> ignore
+        for invalid in [-1.; 5.74; Double.NaN; Double.PositiveInfinity] do
+            Assert.ThrowsException<ArgumentException>(Action(fun () -> c.AngleTolerance <- invalid)) |> ignore
+
+    [<TestMethod>]
     member _.CoordinateToleranceCannotChangeAfterInputDeduplicationUntilClearAll () =
         for add in [ (fun (c: Clipper64<unit>) p -> c.AddSubject p)
                      (fun c p -> c.AddClip p)
@@ -119,11 +145,11 @@ type ToleranceUnitTests () =
     [<TestMethod>]
     member _.DimensionlessTolerancesAreUntouched () =
         let c = Clipper64<unit>()
-        c.ColinearityTolerance <- 0.5
+        c.ColinearityTolerance <- 0.05
         c.HorizontalAngleTolerance <- 1e-4
         c.NearTopYToleranceFactor <- 0.5
         c.Tolerance <- 42.0
-        Assert.AreEqual(0.5, c.ColinearityTolerance)
+        Assert.AreEqual(0.05, c.ColinearityTolerance)
         Assert.AreEqual(1e-4, c.HorizontalAngleTolerance)
         Assert.AreEqual(0.5, c.NearTopYToleranceFactor)
 
