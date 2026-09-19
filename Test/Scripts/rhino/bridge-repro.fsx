@@ -34,15 +34,13 @@ let charSize (ps:Klip.Paths64<unit>) =
     m
 
 let unionK tol (ps:Klip.Paths64<unit>) =
-    let c = Clipper64()
+    let c = Clipper64(tolerance = tol)
     // CoordEqTolerance and MergeVertexTolerance are absolute *distances*, so they must scale with
     // the coordinate magnitude. A relative factor anywhere in [1e-7 .. 5e-7] makes the whole
     // shift/rot sweep pass at every scale (0.001 .. 1e7); 2.6e-7 reproduces the legacy 1e-5 at the
-    // original unit-scale geometry. The other knobs are dimensionless (slope/angle ratios), so they
-    // stay fixed across scale.
+    // original unit-scale geometry. The constructor also scales the other distance and area
+    // thresholds; dimensionless slope/angle settings stay fixed across scale.
     // let tol = 2.6e-7 * charSize ps
-    c.CoordEqTolerance <- tol
-    c.MergeVertexTolerance <- tol
     
     // c.ColinearityTolerance <- 1e-3   // dimensionless (sin θ) - scale-independent default is fine
     // c.HorizontalAngleTolerance <- 1e-6 // dimensionless slope - scale-independent default is fine

@@ -174,8 +174,7 @@ type GeometryToleranceTests () =
             for preserve in [false; true] do
                 for polygon in [path [|0.;0.; 1e6;1e6; 500000.;500001.|]
                                 path [|500000.;500001.; 1e6;1e6; 0.;0.|]] do
-                    let c = Clipper64<unit>()
-                    c.Tolerance <- tolerance
+                    let c = Clipper64<unit>(tolerance = tolerance)
                     c.PreserveColinear <- preserve
                     c.AddSubject(paths [polygon])
                     let result, _ = c.Execute(ClipType.Union, FillRule.NonZero)

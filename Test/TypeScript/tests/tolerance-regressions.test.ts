@@ -52,7 +52,7 @@ describe('Float topology and tolerance defaults', () => {
     const c = Engine.Clipper64$1_$ctor();
     expect(() => Engine.Clipper64$1__AddSubject_2ABD14E4(c, [makePath([0, 0, 10, 0, 10, 10]), makePath([bad, 0, 1, 0, 0, 1])])).toThrow();
     expect(c.vertexList).toHaveLength(0);
-    Engine.Clipper64$1__set_Tolerance_5E38073B(c, 1e-9);
+    expect(Engine.Clipper64$1__get_Tolerance(c)).toBe(1e-5);
   });
   test('translated thin triangles retain their signed area in paths and rings', () => {
     const b = 1e12;
@@ -81,12 +81,43 @@ describe('Float topology and tolerance defaults', () => {
     expect(areaPaths(result)).toBeCloseTo(side * side / 2, 12);
   });
 
-  test('assigning the reported tolerance does not change any default threshold', () => {
-    const c = Engine.Clipper64$1_$ctor();
-    const thresholds = () => [c.coordEqTol, c.mergeVertexTolerance, c.nearTopYToleranceCap, c.smallTriangleTol, c.splitAreaTol];
-    const before = thresholds();
-    Engine.Clipper64$1__set_Tolerance_5E38073B(c, Engine.Clipper64$1__get_Tolerance(c));
-    expect(thresholds()).toEqual(before);
+  test('parameterless construction matches an explicit default tolerance', () => {
+    const defaults = Engine.Clipper64$1_$ctor();
+    const explicit = Engine.Clipper64$1_$ctor_5E38073B(1e-5);
+    const thresholds = (c: any) => [c.coordEqTol, c.mergeVertexTolerance, c.nearTopYToleranceCap, c.smallTriangleTol, c.splitAreaTol];
+    expect(Engine.Clipper64$1__get_Tolerance(defaults)).toBe(1e-5);
+    expect(thresholds(explicit)).toEqual(thresholds(defaults));
+  });
+
+  test.each([0, Number.MIN_VALUE, 1e-200, 0.25, 1e12])('constructor tolerance %s initializes distance and area thresholds', tolerance => {
+    const c = Engine.Clipper64$1_$ctor_5E38073B(tolerance);
+    expect(Engine.Clipper64$1__get_Tolerance(c)).toBe(tolerance);
+    expect(Engine.Clipper64$1__get_CoordEqTolerance(c)).toBe(tolerance);
+    expect([c.mergeVertexTolerance, c.nearTopYToleranceCap, c.smallTriangleTol]).toEqual([tolerance, tolerance, tolerance]);
+    expect(c.splitAreaTol).toBe(tolerance*tolerance);
+  });
+
+  test.each([-Number.MIN_VALUE, -1, 2e12, NaN, Infinity, -Infinity])('constructor rejects tolerance %s', tolerance => {
+    expect(() => Engine.Clipper64$1_$ctor_5E38073B(tolerance)).toThrow();
+  });
+
+  test('constructor tolerance controls ingestion and survives ClearAll and repeated execution', () => {
+    const c = Engine.Clipper64$1_$ctor_5E38073B(1e-9);
+    const triangle = () => [makePath([0, 0, 1e-6, 0, 0, 1e-6])];
+    for (let pass = 0; pass < 2; pass++) {
+      Engine.Clipper64$1__AddSubject_2ABD14E4(c, triangle());
+      Engine.Clipper64$1__set_AngleTolerance_5E38073B(c, 0.1);
+      for (let run = 0; run < 2; run++) {
+        expect(Engine.Clipper64$1__Execute_Z140889D1(c, 2, 1)[0]).toHaveLength(1);
+      }
+      Engine.Clipper64$1__ClearAll(c);
+      expect(Engine.Clipper64$1__get_Tolerance(c)).toBe(1e-9);
+    }
+    const coarse = Engine.Clipper64$1_$ctor();
+    Engine.Clipper64$1__AddSubject_2ABD14E4(coarse, triangle());
+    expect(Engine.Clipper64$1__Execute_Z140889D1(coarse, 2, 1)[0]).toHaveLength(0);
+    expect(Engine).not.toHaveProperty('Clipper64$1__set_Tolerance_5E38073B');
+    expect(Engine).not.toHaveProperty('Clipper64$1__set_CoordEqTolerance_5E38073B');
   });
 
   test.each([

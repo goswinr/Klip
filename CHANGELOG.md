@@ -11,20 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Keep exactly incident boundary points classified as on-edge when tolerance increases from zero to a tiny positive value.
 - Bound angular vertex cleanup by absolute perpendicular deviation, preserving large thin geometry. Reject one- and two-vertex closed rings, apply small-triangle culling during ring validation, and recheck output vertex counts after deduplication.
-- Preserve expert overrides when reassigning reported tolerance values. Store merge distances and angular sine tolerances without squaring, retaining tiny positive settings.
+- Preserve expert horizontal overrides when reassigning the reported angle tolerance. Store merge distances and angular sine tolerances without squaring, retaining tiny positive settings.
 - Make snapping independent of winding and start vertex by selecting actual adjacent candidates once per axis. Average local deltas to preserve identical large coordinates and avoid sum overflow; validate all inputs before mutation.
 - Stabilize angular and perpendicular-distance predicates against overflow and underflow, and compare near-top margins as coordinate differences so large offsets cannot erase them.
 - Use filtered orientation predicates with an exact integer-dyadic fallback for uncertain determinants on both .NET and Fable. Share the cancellation fallback with area and intersection calculations; accumulate polygon areas relative to a local origin with compensation.
 - Reject nonfinite input coordinates and invalid path batches atomically. Canonicalize representative selection for closed near-duplicate chains while preserving input winding and retained vertex metadata.
 - Separate topology orientation signs from the colinearity cleanup angle: shallow turns no longer hide proper segment crossings or change containment with polygon winding. Both path and output-ring containment use absolute boundary distance and exact ray crossings, also preventing a near-horizontal boundary query from looping.
-- Initialize all distance tolerances from the default `Tolerance = 1e-5`, and the split-area tolerance from its square. Default clipping now preserves unit and subunit triangles, and assigning `c.Tolerance <- c.Tolerance` leaves all thresholds unchanged.
+- Initialize all distance tolerances from the default `Tolerance = 1e-5`, and the split-area tolerance from its square. Default clipping now preserves unit and subunit triangles.
 
 ### Added
+- Constructor tolerance regressions covering validation, read-only properties, initialization of derived thresholds, input deduplication, reuse after `ClearAll`, and mutable execution overrides on .NET and JavaScript.
 - Descriptive .NET and JavaScript regressions for tolerance round trips, lifecycle and range boundaries, nontransitive chains, metadata retention, snapping order, translated and extreme-scale geometry, and determinant cancellation.
 - Regression tests for long-edge containment, winding and start-vertex invariance, sloped and axis-aligned boundary distances, proper crossings versus endpoint contacts, and consistent float tolerance defaults.
 
 ### Changed
-- Set `Tolerance` / `CoordEqTolerance` before adding paths. Changing the coordinate distance after ingestion now throws `InvalidOperationException`; use `ClearAll()` and re-add the original paths with the new tolerance.
+- Coordinate tolerance is now constructor-only: use `Clipper64<unit>(tolerance = t)`. `Tolerance` and `CoordEqTolerance` are read-only, replacing their setters and the state-dependent lifecycle exception. The parameterless constructor still uses `1e-5`. `ClearAll()` preserves tolerance and execution settings; create a new instance for a different coordinate tolerance. Execution-only expert overrides and `AngleTolerance` remain mutable.
 - Align the expert colinearity sine range (`0 .. 0.1`) and angle range (`0 .. asin(0.1)` degrees, about 5.739). Both support exact mode at zero; previously accepted expert sine values above 0.1 are now rejected.
 - Align the explicitly supplied `Snap.DefaultTolerance` constant with the engine default (`1e-5`, previously `1e-8`). Document bounded clusters and single-pass snapping semantics.
 

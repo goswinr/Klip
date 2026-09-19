@@ -21,26 +21,22 @@ let printK (ps : Paths64<_> ) =
     |> print
 
 let unionK (scale:float)  (ps:Klip.Paths64<unit>) =
-    let c = Clipper64()
+    let c = Clipper64(tolerance = scale * 1.1e-3)
 
     // c.MergeVertexTolerance <- 1e-6  // should be smaller than 1e-5
     // c.ColinearityTolerance <- 1e-2 // at 1e-4 or bigger
-    // c.CoordEqTolerance <-  1e-3 * scale // should be bigger than 1e-4,  need scale factor
 
     // c.NearTopYToleranceCap <- 1e-3
     // c.NearTopYToleranceFactor <- 1e-6
     //
-        // CoordEqTolerance is an absolute distance. This sweep offsets touching
-    // vertices by up to 1e-3 before scaling, so use a scaled tolerance just
-    // above that offset while keeping the engine's default floor for tiny cases.
-    let coordEqTol = scale * 1.1e-3
+    // Constructor tolerance is an absolute distance. This sweep offsets touching
+    // vertices by up to 1e-3 before scaling, so use a scaled tolerance just above that offset.
     // factor 0.001       -> 3 failures
     // factor 0.001000001 -> 0 failures because the max shift is 1e-3, so the tolerance must be above that to avoid failures
     // .
     // .
     // factor 0.635       -> 0 failures
     // factor 0.64        -> 12 failures
-    c.CoordEqTolerance <- coordEqTol
 
     c.AddPaths(ps, PathType.Subject)
     c.Execute(ClipType.Union, FillRule.NonZero) |> fst

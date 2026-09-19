@@ -31,10 +31,9 @@ type ApiContractTests () =
                         path [|0.;0.; Double.NegativeInfinity;0.; 0.;1.|]
                         Path64.createEmpty()] do
             for isOpen in [false; true] do
-                let c = Clipper64<unit>()
+                let c = Clipper64<unit>(tolerance = 1e-9)
                 Assert.ThrowsException<ArgumentException>(Action(fun () -> c.AddPaths(paths [posSquare(); badPath], PathType.Subject, isOpen))) |> ignore
                 Assert.IsFalse(c.HasOpenPaths, "failed ingestion must not set open-input state")
-                c.Tolerance <- 1e-9 // no vertices may have been ingested
                 let closed, _ = c.Execute(ClipType.Union, FillRule.NonZero)
                 Assert.AreEqual(0, closed.Count, "the valid prefix of a failed batch must not survive")
                 c.AddSubject(paths [posSquare()])

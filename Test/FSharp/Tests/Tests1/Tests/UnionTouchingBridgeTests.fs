@@ -44,9 +44,7 @@ type UnionTouchingBridgeTests () =
         ]
 
     let unionWithTolerance tolerance (ps: Paths64<unit>) =
-        let c = Clipper64<unit>()
-        c.CoordEqTolerance <- tolerance
-        c.MergeVertexTolerance <- tolerance
+        let c = Clipper64<unit>(tolerance = tolerance)
         c.AddPaths(ps, PathType.Subject)
         c.Execute(ClipType.Union, FillRule.NonZero) |> fst
 

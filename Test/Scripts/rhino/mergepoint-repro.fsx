@@ -61,10 +61,9 @@ let printK (ps:Paths64<_> ) =
     |> printGeo
 
 let unionK (ps:Klip.Paths64<unit>) =
-    let c = Clipper64()
+    let c = Clipper64(tolerance = 1e-2) // adjust to input scale
     // c.MergeVertexTolerance <- 1e-6  // should be smaller than 1e-5
     // c.ColinearityTolerance <- 1e4 // at 1e-4 or bigger
-    c.CoordEqTolerance <- 1e-2 // needs to be adjuated to scale !!
     //
     // c.NearTopYToleranceCap <- 1e-3
     // c.NearTopYToleranceFactor <- 1e-6

@@ -8,7 +8,7 @@ open Microsoft.VisualStudio.TestTools.UnitTesting
 open Klip
 open Klip.Tests.Helpers
 
-/// Tests for the `Clipper64.Tolerance` property: one absolute tolerance drives the five
+/// Tests for constructor-owned tolerance: one absolute tolerance initializes the five
 /// scale-dependent tolerances, and clipping is scale-equivariant - scaling all input
 /// coordinates by `s` together with the tolerance yields the identically scaled solution
 /// (bit-exact when `s` is a power of two).
@@ -43,31 +43,35 @@ type ToleranceUnitTests () =
     let scalePaths (s: float) (ps: Paths64<unit>) : Paths64<unit> =
         Paths64.mapXY (fun v -> v * s) ps
 
-    /// NonZero union via Clipper64, with an optional absolute tolerance set before adding paths.
+    /// NonZero union via Clipper64, with an optional constructor tolerance.
     let unionWithTolerance (t: float option) (subj: Paths64<unit>) (clp: Paths64<unit>) : Paths64<unit> =
-        let c = Clipper64<unit>()
-        match t with
-        | Some t -> c.Tolerance <- t
-        | None -> ()
+        let c = match t with Some value -> Clipper64<unit>(tolerance = value) | None -> Clipper64<unit>()
         c.AddSubject subj
         c.AddClip clp
         let closed, _ = c.Execute(ClipType.Union, FillRule.NonZero)
         closed
 
     [<TestMethod>]
-    member _.DefaultsMatchExplicitlySettingTheReportedTolerance () =
-        let c = Clipper64<unit>()
-        let before = c.CoordEqTolerance, c.MergeVertexTolerance, c.NearTopYToleranceCap, c.SmallTriangleTolerance, c.SplitAreaTolerance
-        c.Tolerance <- c.Tolerance
-        let after = c.CoordEqTolerance, c.MergeVertexTolerance, c.NearTopYToleranceCap, c.SmallTriangleTolerance, c.SplitAreaTolerance
-        Assert.AreEqual(before, after, "assigning the reported default must not change hidden culling or join thresholds")
+    member _.ParameterlessConstructorMatchesTheExplicitDefaultTolerance () =
+        let defaults = Clipper64<unit>()
+        let explicit = Clipper64<unit>(tolerance = defaults.Tolerance)
+        let thresholds (c: Clipper64<unit>) = c.CoordEqTolerance, c.MergeVertexTolerance, c.NearTopYToleranceCap, c.SmallTriangleTolerance, c.SplitAreaTolerance
+        Assert.AreEqual(1e-5, defaults.Tolerance)
+        Assert.AreEqual(thresholds defaults, thresholds explicit)
 
     [<TestMethod>]
-    member _.ReassigningReportedTolerancesPreservesExpertOverrides () =
+    member _.CoordinateTolerancePropertiesHaveNoPublicOrPrivateSetter () =
+        for name in ["Tolerance"; "CoordEqTolerance"] do
+            let property = typeof<Clipper64<unit>>.GetProperty name
+            Assert.IsNotNull(property)
+            Assert.IsTrue(property.CanRead)
+            Assert.IsFalse(property.CanWrite, name + " must be constructor-only")
+
+    [<TestMethod>]
+    member _.ReassigningReportedAngleTolerancePreservesExpertOverrides () =
         let c = Clipper64<unit>()
         c.MergeVertexTolerance <- 0.25
         c.HorizontalAngleTolerance <- 1e-7
-        c.Tolerance <- c.Tolerance
         c.AngleTolerance <- c.AngleTolerance
         Assert.AreEqual(0.25, c.MergeVertexTolerance)
         Assert.AreEqual(1e-7, c.HorizontalAngleTolerance)
@@ -98,8 +102,7 @@ type ToleranceUnitTests () =
                     let polygon = path [|for i = 0 to vertices.Length - 1 do
                                              let x,y = winding[(start+i)%vertices.Length]
                                              yield x; yield y|]
-                    let c = Clipper64<unit>()
-                    c.Tolerance <- 1.
+                    let c = Clipper64<unit>(tolerance = 1.)
                     c.AngleTolerance <- 0.
                     c.AddSubject(paths [polygon])
                     let result, _ = c.Execute(ClipType.Union, FillRule.NonZero)
@@ -114,8 +117,7 @@ type ToleranceUnitTests () =
         let p = Path64<string>(ResizeArray [0.;0.; 0.9;0.9; 1.8;0.; 10.;0.; 10.;10.; 0.;10.],
                                Some (ResizeArray ["origin";"near";"edge";"right";"top";"left"]))
         for polygon in [p; Geo.reversePath p] do
-            let c = Clipper64<string>()
-            c.Tolerance <- 1.
+            let c = Clipper64<string>(tolerance = 1.)
             c.AngleTolerance <- 0.
             c.AddSubject(ResizeArray [polygon])
             let fill = if polygon.SignedArea > 0. then FillRule.Positive else FillRule.Negative
@@ -142,22 +144,47 @@ type ToleranceUnitTests () =
             Assert.ThrowsException<ArgumentException>(Action(fun () -> c.AngleTolerance <- invalid)) |> ignore
 
     [<TestMethod>]
-    member _.CoordinateToleranceCannotChangeAfterInputDeduplicationUntilClearAll () =
+    member _.ConstructorToleranceControlsIngestionAndPersistsAcrossClearAll () =
+        let triangle () = paths [path [|0.;0.; 1e-6;0.; 0.;1e-6|]]
         for add in [ (fun (c: Clipper64<unit>) p -> c.AddSubject p)
                      (fun c p -> c.AddClip p)
                      (fun c p -> c.AddOpenSubject p) ] do
-            let c = Clipper64<unit>()
-            add c (paths [path [|0.;0.; 1e-6;0.; 0.;1e-6|]])
-            let before = c.Tolerance, c.MergeVertexTolerance, c.SplitAreaTolerance
-            Assert.ThrowsException<InvalidOperationException>(Action(fun () -> c.Tolerance <- 1e-9)) |> ignore
-            Assert.ThrowsException<InvalidOperationException>(Action(fun () -> c.CoordEqTolerance <- 1e-9)) |> ignore
-            Assert.AreEqual(before, (c.Tolerance, c.MergeVertexTolerance, c.SplitAreaTolerance), "failed changes must be atomic")
-            c.Tolerance <- c.Tolerance // harmless reassignment is allowed
-            c.ClearAll()
-            c.Tolerance <- 1e-9
-            c.AddSubject(paths [path [|0.;0.; 1e-6;0.; 0.;1e-6|]])
-            let result, _ = c.Execute(ClipType.Union, FillRule.NonZero)
-            Assert.AreEqual(1, result.Count, "clearing and re-adding uses the new tolerance")
+            let fine = Clipper64<unit>(tolerance = 1e-9)
+            add fine (triangle ())
+            fine.ClearAll()
+            Assert.AreEqual(1e-9, fine.Tolerance)
+            Assert.AreEqual(1e-9, fine.CoordEqTolerance)
+            fine.AddSubject(triangle ())
+            for _ = 1 to 2 do
+                let result, _ = fine.Execute(ClipType.Union, FillRule.NonZero)
+                Assert.AreEqual(1, result.Count, "repeated execution and ClearAll retain the constructor's fine tolerance")
+        let coarse = Clipper64<unit>()
+        coarse.AddSubject(triangle ())
+        let result, _ = coarse.Execute(ClipType.Union, FillRule.NonZero)
+        Assert.AreEqual(0, result.Count, "a different instance can intentionally use a coarser tolerance")
+
+    [<TestMethod>]
+    member _.ExecutionOnlyToleranceOverridesRemainMutableAfterAddingPathsAndSurviveClearAll () =
+        let c = Clipper64<unit>(tolerance = 1e-9)
+        let triangle = paths [path [|0.;0.; 1.;0.; 0.;1.|]]
+        c.AddSubject triangle
+        c.AngleTolerance <- 0.25
+        c.MergeVertexTolerance <- 0.125
+        c.NearTopYToleranceCap <- 0.25
+        c.SmallTriangleTolerance <- 2.
+        c.SplitAreaTolerance <- 0.5
+        let culled, _ = c.Execute(ClipType.Union, FillRule.NonZero)
+        Assert.AreEqual(0, culled.Count, "the execution-time triangle override takes effect")
+        c.SmallTriangleTolerance <- 0.
+        let kept, _ = c.Execute(ClipType.Union, FillRule.NonZero)
+        Assert.AreEqual(1, kept.Count)
+        c.ClearAll()
+        Assert.AreEqual(1e-9, c.Tolerance)
+        Assert.AreEqual(0.25, c.AngleTolerance, 1e-15)
+        Assert.AreEqual(0.125, c.MergeVertexTolerance)
+        Assert.AreEqual(0.25, c.NearTopYToleranceCap)
+        Assert.AreEqual(0., c.SmallTriangleTolerance)
+        Assert.AreEqual(0.5, c.SplitAreaTolerance)
 
     [<TestMethod>]
     member _.DefaultUnionPreservesUnitAndSubunitTriangles () =
@@ -170,7 +197,7 @@ type ToleranceUnitTests () =
             Assert.AreEqual(side * side * 0.5, totalAbsArea result, side * side * 1e-12)
 
     [<TestMethod>]
-    member _.AssigningReportedDefaultDoesNotChangeTriangleUnion () =
+    member _.ExplicitDefaultConstructorToleranceDoesNotChangeTriangleUnion () =
         let triangle = paths [path [| 0.;0.; 1.;0.; 0.;1. |]]
         let defaultResult = unionWithTolerance None triangle (paths [])
         let explicitResult = unionWithTolerance (Some (Clipper64<unit>().Tolerance)) triangle (paths [])
@@ -179,43 +206,31 @@ type ToleranceUnitTests () =
         Assert.AreEqual(totalAbsArea defaultResult, totalAbsArea explicitResult)
 
     [<TestMethod>]
-    member _.ToleranceSetsAllFiveScaleDependentTolerances () =
-        let c = Clipper64<unit>()
-        // poke every scale-dependent tolerance away first
-        c.CoordEqTolerance <- 123.0
-        c.MergeVertexTolerance <- 123.0
-        c.NearTopYToleranceCap <- 123.0
-        c.SmallTriangleTolerance <- 123.0
-        c.SplitAreaTolerance <- 123.0
-        c.Tolerance <- 0.25
-        Assert.AreEqual(0.25, c.Tolerance)
-        Assert.AreEqual(0.25, c.CoordEqTolerance)
-        Assert.AreEqual(0.25, c.MergeVertexTolerance)
-        Assert.AreEqual(0.25, c.NearTopYToleranceCap)
-        Assert.AreEqual(0.25, c.SmallTriangleTolerance)
-        Assert.AreEqual(0.0625, c.SplitAreaTolerance) // the tolerance squared
+    member _.ConstructorToleranceInitializesAllFiveScaleDependentThresholds () =
+        for tolerance in [0.; Double.Epsilon; 1e-200; 0.25; 1e12] do
+            let c = Clipper64<unit>(tolerance = tolerance)
+            Assert.AreEqual(tolerance, c.Tolerance)
+            Assert.AreEqual(tolerance, c.CoordEqTolerance)
+            Assert.AreEqual(tolerance, c.MergeVertexTolerance)
+            Assert.AreEqual(tolerance, c.NearTopYToleranceCap)
+            Assert.AreEqual(tolerance, c.SmallTriangleTolerance)
+            Assert.AreEqual(tolerance*tolerance, c.SplitAreaTolerance)
 
     [<TestMethod>]
-    member _.DimensionlessTolerancesAreUntouched () =
-        let c = Clipper64<unit>()
-        c.ColinearityTolerance <- 0.05
-        c.HorizontalAngleTolerance <- 1e-4
-        c.NearTopYToleranceFactor <- 0.5
-        c.Tolerance <- 42.0
-        Assert.AreEqual(0.05, c.ColinearityTolerance)
-        Assert.AreEqual(1e-4, c.HorizontalAngleTolerance)
-        Assert.AreEqual(0.5, c.NearTopYToleranceFactor)
+    member _.ConstructorDistanceDoesNotChangeDimensionlessDefaults () =
+        let defaults = Clipper64<unit>()
+        for tolerance in [0.; 42.; 1e12] do
+            let c = Clipper64<unit>(tolerance = tolerance)
+            Assert.AreEqual(defaults.AngleTolerance, c.AngleTolerance)
+            Assert.AreEqual(defaults.ColinearityTolerance, c.ColinearityTolerance)
+            Assert.AreEqual(defaults.HorizontalAngleTolerance, c.HorizontalAngleTolerance)
+            Assert.AreEqual(defaults.NearTopYToleranceFactor, c.NearTopYToleranceFactor)
 
     [<TestMethod>]
-    member _.ToleranceOutsideValidRangeRaisesArgumentException () =
-        let c = Clipper64<unit>()
-        Assert.ThrowsException<ArgumentException>(
-            Action(fun () -> c.Tolerance <- -1.0)) |> ignore
-        Assert.ThrowsException<ArgumentException>(
-            Action(fun () -> c.Tolerance <- 2e12)) |> ignore
-        // both ends of the valid range are accepted
-        c.Tolerance <- 0.0
-        c.Tolerance <- 1e12
+    member _.ConstructorRejectsOutOfRangeAndNonfiniteTolerances () =
+        for invalid in [-Double.Epsilon; -1.; 2e12; Double.NaN; Double.PositiveInfinity; Double.NegativeInfinity] do
+            let error = Assert.ThrowsException<ArgumentException>(Action(fun () -> Clipper64<unit>(tolerance = invalid) |> ignore))
+            Assert.AreEqual("tolerance", error.ParamName)
 
     [<TestMethod>]
     member _.ScaledInputWithScaledToleranceGivesBitExactScaledOutput () =

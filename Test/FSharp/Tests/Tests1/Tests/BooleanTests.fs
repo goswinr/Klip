@@ -577,8 +577,7 @@ type BooleanTests () =
         // to zero output. CoordEqTolerance must track coordinate magnitude (~maxCoord * 1e-6);
         // tightening it to 1e-10 keeps the vertices distinct so the union resolves correctly.
         // Tolerances belong to this instance and must be set before ingestion.
-        let c = Clipper64<unit>()
-        c.CoordEqTolerance <- 1e-10
+        let c = Clipper64<unit>(tolerance = 1e-10)
         c.AddSubject(subj)
         c.AddClip(clip)
         let solution,_ = c.Execute(ClipType.Union, FillRule.NonZero)

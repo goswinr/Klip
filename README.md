@@ -162,32 +162,42 @@ Use `Clipper64<'Z>` directly for open subjects, repeated execution with the same
 tuning:
 
 - `PreserveColinear`: keep removable colinear vertices in closed solutions.
-- `Tolerance`: sets all five scale-dependent tolerances from one absolute tolerance - the distance below
-  which points are considered identical and lines touching. The value is used as-is, not as a multiplier
-  of the defaults; see [Tolerances and scaling](#tolerances-and-scaling).
+- Constructor `tolerance`: initializes all five scale-dependent tolerances from one absolute distance.
+  `Tolerance` reports this fixed value; see [Tolerances and scaling](#tolerances-and-scaling).
 - `ReverseSolution`: reverses output orientation.
 - `ZCallback`: computes metadata for vertices created at intersections.
 
-The individual tolerance properties (point coincidence, adjacent-edge joins, colinearity, horizontality,
+The individual execution tolerance properties (adjacent-edge joins, colinearity, horizontality,
 the near-top join guard, and the sliver culls) remain functional as expert overrides but are marked
-`[<Obsolete>]`. Use `Tolerance` and `AngleTolerance` for ordinary tuning; editor visibility of
-obsolete members depends on the tooling.
+`[<Obsolete>]`. `CoordEqTolerance` is a read-only alias for `Tolerance`. Use the constructor's
+`tolerance` argument and the mutable `AngleTolerance` property for ordinary tuning; editor visibility
+of obsolete members depends on the tooling.
 Each is documented in detail on the member itself in `Src/Engine.fs`.
 
 ### Tolerances and scaling
 
 The distance tolerances are absolute and do **not** auto-scale - the engine does not normalize coordinate
-magnitude. Set them all from one absolute tolerance with `c.Tolerance <- t` - the distance below which
+magnitude. Initialize them with `Clipper64<unit>(tolerance = t)` - the distance below which
 points are considered identical and lines touching: the four distance tolerances become `t`, and the area-valued split
 tolerance becomes `t²` (valid range `0.0 .. 1e12`; `0` makes the comparisons exact). The value is used
-as-is, not as a multiplier of the defaults. A new instance is equivalent to setting
-`c.Tolerance <- 1e-5`: all four distance thresholds are `1e-5`, and the split-area threshold is `1e-10`.
-Unit and subunit triangles no longer need an explicit assignment to bypass integer-grid culling defaults.
+as-is, not as a multiplier of the defaults. `Clipper64<unit>()` uses `1e-5`: all four distance
+thresholds are `1e-5`, and the split-area threshold is `1e-10`.
+Unit and subunit triangles do not need a custom tolerance to bypass integer-grid culling defaults.
 
-Set `Tolerance` (or the expert `CoordEqTolerance`) **before adding paths**: input ingestion
-discards near-duplicate vertices. Changing that distance afterwards raises `InvalidOperationException`.
-Call `ClearAll()`, set the new tolerance, and re-add the original paths to rebuild them.
-Repeated executions with the same inputs remain supported.
+Coordinate tolerance is **constructor-only**: input ingestion discards near-duplicate vertices.
+Both `Tolerance` and `CoordEqTolerance` are read-only. `ClearAll()` removes geometry while retaining
+the constructor tolerance and execution settings. Create a new instance and re-add the original
+paths to use a different coordinate tolerance. Repeated execution with the same inputs is supported.
+
+```fsharp
+let c = Clipper64<unit>(tolerance = 1e-6)
+c.AngleTolerance <- 0.05 // execution-only settings remain adjustable
+c.AddSubject(subject)
+let closed, opened = c.Execute(ClipType.Union, FillRule.NonZero)
+```
+
+Migrate `c.Tolerance <- t` or `c.CoordEqTolerance <- t` to the constructor argument.
+It initializes all five thresholds; apply any separate execution-only expert overrides afterwards.
 
 Near equality is not transitive. For closed input paths with adjacent near duplicates,
 the engine chooses representatives in the lexicographically smallest cyclic traversal
@@ -195,9 +205,8 @@ across both directions, then restores the input winding. Rotating the start vert
 reversing the path therefore keeps the same coordinates; each retained vertex keeps its
 own Z value. Open paths retain their supplied direction and use sequential deduplication.
 
-Reassigning either reported tolerance (`c.Tolerance <- c.Tolerance` or
-`c.AngleTolerance <- c.AngleTolerance`) preserves expert overrides. Assigning a different
-value updates the associated thresholds together. The angle range is `0 .. asin(0.1)`
+Reassigning `c.AngleTolerance <- c.AngleTolerance` preserves expert horizontal overrides.
+Assigning a different angle updates both angular thresholds together. The angle range is `0 .. asin(0.1)`
 degrees (about 5.739), and the corresponding expert sine range is `0 .. 0.1`, including
 exact mode at zero. Larger sine values are rejected because they cannot round-trip through
 the supported angle range.

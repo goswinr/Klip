@@ -41,8 +41,7 @@ let printAsCode(ps:ResizeArray<Polyline2D> ) =
     |> Seq.iter (printfn "  %s")
 
 let unionKlip(ps:Klip.Paths64<unit>) =
-    let c = Clipper64()
-    c.Tolerance <- 2.0
+    let c = Clipper64(tolerance = 2.0)
     c.ColinearityTolerance <- 0.1
     c.AddPaths(Paths64.ensurePositiveOrientations ps, PathType.Subject)
     c.Execute(ClipType.Union, FillRule.NonZero) |> fst
