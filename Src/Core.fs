@@ -23,6 +23,92 @@ do ()
 type internal OPT = Runtime.InteropServices.OptionalAttribute
 type internal DEF = Runtime.InteropServices.DefaultParameterValueAttribute
 
+/// Filter ordinary determinants first, then evaluate uncertain signs exactly for the
+/// represented IEEE doubles. The fallback uses integer dyadics on both .NET and Fable.
+module internal Robust =
+    let private dyadic value =
+        let bits = BitConverter.DoubleToInt64Bits value
+        let exponent = int ((bits >>> 52) &&& 0x7ffL)
+        let fraction = bits &&& 0x000fffffffffffffL
+        let mantissa = if exponent = 0 then fraction else fraction ||| 0x0010000000000000L
+        let signed = if bits < 0L then -mantissa else mantissa
+        bigint signed, (if exponent = 0 then -1074 else exponent - 1075)
+
+    let private integers (coordinates: float[]) =
+        let parts = Array.map dyadic coordinates
+        let exponent = parts |> Array.map snd |> Array.min
+        (parts |> Array.map (fun (mantissa, power) -> mantissa <<< (power - exponent))), exponent
+
+    // A conservative orientation error filter (cf. Shewchuk's orient2d bound).
+    // https://www.cs.cmu.edu/~quake/robust.html
+    // The absolute floor sends underflow/subnormal cases to exact arithmetic too.
+    let private reliable left right =
+        let determinant = left - right
+        not (Double.IsInfinity determinant) &&
+        abs determinant > max 1e-290 (1e-14 * (abs left + abs right))
+
+    let orientation (ax, ay, bx, by, cx, cy) =
+        let left = (bx - ax) * (cy - ay)
+        let right = (by - ay) * (cx - ax)
+        if reliable left right then
+            if left > right then 1 else -1
+        elif (ax = bx && bx = cx) || (ay = by && by = cy) ||
+             (ax = bx && ay = by) || (ax = cx && ay = cy) || (bx = cx && by = cy) then 0
+        else
+            let p, _ = integers [|ax; ay; bx; by; cx; cy|]
+            let determinant = (p[2]-p[0]) * (p[5]-p[1]) - (p[3]-p[1]) * (p[4]-p[0])
+            determinant.Sign
+
+    let private significand (value: bigint) =
+        let mutable magnitude = abs value
+        let mutable shift = 0
+        while magnitude > (1I <<< 85) do
+            magnitude <- magnitude >>> 32
+            shift <- shift + 32
+        while magnitude > (1I <<< 53) do
+            magnitude <- magnitude >>> 1
+            shift <- shift + 1
+        float magnitude * float value.Sign, shift
+
+    /// Signed double area, sharing the predicate's cancellation fallback.
+    let determinant (ax, ay, bx, by, cx, cy) =
+        let left = (bx - ax) * (cy - ay)
+        let right = (by - ay) * (cx - ax)
+        if reliable left right then left - right
+        else
+            let p, exponent = integers [|ax; ay; bx; by; cx; cy|]
+            let exact = (p[2]-p[0]) * (p[5]-p[1]) - (p[3]-p[1]) * (p[4]-p[0])
+            let mantissa, shift = significand exact
+            let power = shift + 2*exponent
+            if mantissa = 0. then 0.
+            elif power < -1022 then (mantissa * 2. ** -1022.) * 2. ** float (power + 1022)
+            else mantissa * 2. ** float power
+
+    let private ratio numerator denominator =
+        if denominator = 0I then Double.NaN
+        else
+            let n, ns = significand numerator
+            let d, ds = significand denominator
+            let exponent = ns - ds
+            if exponent < -1022 then (n / d * 2. ** -1022.) * 2. ** float (exponent + 1022)
+            else n / d * 2. ** float exponent
+
+    /// Parameter on AB at its intersection with CD. NaN denotes exactly parallel lines.
+    /// Use the same exact fallback as topology so a real crossing never divides by a
+    /// determinant that merely rounded to zero. Construction remains double precision.
+    let intersectionParameter (ax, ay, bx, by, cx, cy, dx, dy) =
+        let left = (by - ay) * (dx - cx)
+        let right = (dy - cy) * (bx - ax)
+        let nleft = (ax - cx) * (dy - cy)
+        let nright = (ay - cy) * (dx - cx)
+        if reliable left right && reliable nleft nright then
+            (nleft - nright) / (left - right)
+        else
+            let p, _ = integers [|ax; ay; bx; by; cx; cy; dx; dy|]
+            let dx1, dy1 = p[2]-p[0], p[3]-p[1]
+            let dx2, dy2 = p[6]-p[4], p[7]-p[5]
+            ratio ((p[0]-p[4])*dy2 - (p[1]-p[5])*dx2) (dy1*dx2 - dy2*dx1)
+
 
 
 [<AutoOpen>]
@@ -284,9 +370,7 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
             let mutable total = 0.
             let mutable correction = 0.
             for i = 1 to cnt - 2 do
-                let ax, ay = p.GetX i - ox, p.GetY i - oy
-                let bx, by = p.GetX (i+1) - ox, p.GetY (i+1) - oy
-                let term = (ax * by - ay * bx) - correction
+                let term = Robust.determinant (ox, oy, p.GetX i, p.GetY i, p.GetX (i+1), p.GetY (i+1)) - correction
                 let sum = total + term
                 correction <- (sum - total) - term
                 total <- sum
@@ -395,12 +479,8 @@ module internal Geo =
 
     /// Orientation for topology, independent of the angle used for colinear cleanup.
     /// A shallow but nonzero turn still determines which side of an edge a point lies on.
-    let inline crossProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
-        let left = (pt2X - pt1X) * (pt3Y - pt1Y)
-        let right = (pt2Y - pt1Y) * (pt3X - pt1X)
-        if left > right then 1
-        elif left < right then -1
-        else 0
+    let crossProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
+        Robust.orientation (pt1X, pt1Y, pt2X, pt2Y, pt3X, pt3Y)
 
     let segsIntersectNotInclusive(seg1aX: float, seg1aY: float, seg1bX: float, seg1bY: float, seg2aX: float, seg2aY: float, seg2bX: float, seg2bY: float) : bool =
         let s1 = crossProductSign (seg2aX, seg2aY, seg2bX, seg2bY, seg1aX, seg1aY)
@@ -424,7 +504,8 @@ module internal Geo =
         let b = pt2Y - sharedY
         let c = sharedY - pt1Y
         let d = pt2X - sharedX
-        productsAreEqual (colinTolSqrd, a, b, c, d)
+        if colinTolSqrd = 0. then crossProductSign (pt1X, pt1Y, sharedX, sharedY, pt2X, pt2Y) = 0
+        else productsAreEqual (colinTolSqrd, a, b, c, d)
 
     let inline dotProduct (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : float =
         let a = pt2X - pt1X

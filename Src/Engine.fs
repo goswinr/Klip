@@ -166,12 +166,7 @@ type Clipper64<'Z>() =
     let getLineIntersectPtInState(ln1a: OutPt<'Z>, ln1b: OutPt<'Z>, ln2a: OutPt<'Z>, ln2b: OutPt<'Z>) : unit =
         let dy1 = ln1b.y - ln1a.y
         let dx1 = ln1b.x - ln1a.x
-        let dy2 = ln2b.y - ln2a.y
-        let dx2 = ln2b.x - ln2a.x
-        let det = dy1 * dx2 - dy2 * dx1
-        // doSplitOp is only reached when segments are known to intersect,
-        // so det is never zero here and can be used as divisor. (see clipper2-ts comments)
-        let t = ((ln1a.x - ln2a.x) * dy2 - (ln1a.y - ln2a.y) * dx2) / det
+        let t = Robust.intersectionParameter(ln1a.x, ln1a.y, ln1b.x, ln1b.y, ln2a.x, ln2a.y, ln2b.x, ln2b.y)
         if t <= 0.0 then
             tempX <- ln1a.x
             tempY <- ln1a.y
