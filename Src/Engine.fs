@@ -2639,6 +2639,15 @@ type Clipper64<'Z>() =
             invalidArg "paths" "Paths cannot be null."
         if isOpen && pathType = PathType.Clip then
             invalidArg "isOpen" "Clip paths cannot be open. Use AddOpenSubject for open subject paths."
+        // Validate the complete batch before changing flags, vertices, or minima.
+        // NaN breaks ordering; infinities poison intersection and distance arithmetic.
+        for i = 0 to paths.Count - 1 do
+            let path = paths[i]
+            if isNull' path || path.IsEmpty then
+                invalidArg "paths" $"The path at index {i} must be non-null and contain points."
+            for coordinate in path.XYs do
+                if Double.IsNaN coordinate || Double.IsInfinity coordinate then
+                    invalidArg "paths" $"Coordinates must be finite (path at index {i})."
         if isOpen then
             hasOpenPaths <- true
         isSortedMinimaList <- false

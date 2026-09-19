@@ -12,6 +12,12 @@ import { Path64$1__get_SignedArea } from '../_js/Src/Core.js';
 import * as Engine from '../_js/Src/Engine.js';
 
 describe('Float topology and tolerance defaults', () => {
+  test.each([NaN, Infinity, -Infinity])('input coordinate %s is rejected before ingesting a valid prefix', bad => {
+    const c = Engine.Clipper64$1_$ctor();
+    expect(() => Engine.Clipper64$1__AddSubject_2ABD14E4(c, [makePath([0, 0, 10, 0, 10, 10]), makePath([bad, 0, 1, 0, 0, 1])])).toThrow();
+    expect(c.vertexList).toHaveLength(0);
+    Engine.Clipper64$1__set_Tolerance_5E38073B(c, 1e-9);
+  });
   test('translated thin triangles retain their signed area in paths and rings', () => {
     const b = 1e12;
     const p = makePath([b, b, b+1000, b+1000, b+500, b+500+0.0001]);

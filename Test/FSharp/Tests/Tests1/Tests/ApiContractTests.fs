@@ -25,6 +25,23 @@ type ApiContractTests () =
             Action(fun () -> c.AddPaths(withEmpty, PathType.Subject))) |> ignore
 
     [<TestMethod>]
+    member _.InvalidInputCoordinatesAreRejectedBeforeAnyPathOrOpenStateIsAdded () =
+        for badPath in [path [|Double.NaN;0.; 1.;0.; 0.;1.|]
+                        path [|0.;Double.PositiveInfinity; 1.;0.; 0.;1.|]
+                        path [|0.;0.; Double.NegativeInfinity;0.; 0.;1.|]
+                        Path64.createEmpty()] do
+            for isOpen in [false; true] do
+                let c = Clipper64<unit>()
+                Assert.ThrowsException<ArgumentException>(Action(fun () -> c.AddPaths(paths [posSquare(); badPath], PathType.Subject, isOpen))) |> ignore
+                Assert.IsFalse(c.HasOpenPaths, "failed ingestion must not set open-input state")
+                c.Tolerance <- 1e-9 // no vertices may have been ingested
+                let closed, _ = c.Execute(ClipType.Union, FillRule.NonZero)
+                Assert.AreEqual(0, closed.Count, "the valid prefix of a failed batch must not survive")
+                c.AddSubject(paths [posSquare()])
+                let valid, _ = c.Execute(ClipType.Union, FillRule.NonZero)
+                Assert.AreEqual(100., totalAbsArea valid)
+
+    [<TestMethod>]
     member _.EmptyPathInKlipperWrapperRaisesArgumentException () =
         let withEmpty = paths [ Path64.createEmpty() ]
         Assert.ThrowsException<ArgumentException>(
