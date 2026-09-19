@@ -328,7 +328,11 @@ module internal Eng =
                 else
                     op2 <- op2.next
 
-            path.PointCount <> 3 || isOpen || not (isVerySmallTriangle (smallTriangleTol, op2))
+            path.PointCount >= (if isOpen then 2 else 3) &&
+            (path.PointCount <> 3 || isOpen ||
+                not (ptsReallyClose (smallTriangleTol, path.GetX 0, path.GetY 0, path.GetX 1, path.GetY 1) ||
+                     ptsReallyClose (smallTriangleTol, path.GetX 1, path.GetY 1, path.GetX 2, path.GetY 2) ||
+                     ptsReallyClose (smallTriangleTol, path.GetX 2, path.GetY 2, path.GetX 0, path.GetY 0)))
 
 
     let inline containsRect (rect:OutRec<'Z>, rec_:OutRec<'Z>) : bool =
@@ -465,9 +469,9 @@ module internal Eng =
         op.next.prev <- op.prev
         result
 
-    let inline isValidClosedPath (smallTriangleTol: float, op: OutPt<'Z>) : bool =
+    let isValidClosedPath (smallTriangleTol: float, op: OutPt<'Z>) : bool =
         isNotNull op && op.next =!= op &&
-        (op.next =!= op.prev || not (isVerySmallTriangle (smallTriangleTol, op)))
+        op.next =!= op.prev && not (isVerySmallTriangle (smallTriangleTol, op))
 
     let inline outrecIsAscending (hotEdge: ActiveEdge<'Z>) : bool =
         hotEdge === hotEdge.outrec.frontEdge

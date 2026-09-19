@@ -37,6 +37,24 @@ type GeometryToleranceTests () =
         assertContainmentWithin coordTol expected x y polygon
 
     [<TestMethod>]
+    member _.ClosedRingValidationRejectsTooFewVerticesAndAppliesTheTriangleWindow () =
+        let check tolerance coords expected =
+            Assert.AreEqual(expected, Eng.isValidClosedPath(tolerance, asRing (path coords)))
+        check 0. [|0.;0.|] false
+        check 0. [|0.;0.; 10.;10.|] false
+        check 1. [|0.;0.; 0.5;0.; 0.;10.|] false
+        check 1. [|0.;0.; 1.;0.; 0.;10.|] true // strict threshold
+        check 0. [|0.;0.; 0.5;0.; 0.;10.|] true
+        check 1. [|0.;0.; 0.5;0.; 10.;10.; 0.;10.|] true // only triangles are culled
+
+    [<TestMethod>]
+    member _.OutputDeduplicationCannotReturnAClosedPathWithFewerThanThreeVertices () =
+        let ring = asRing (path [|0.;0.; 0.5;0.; 0.;0.5|])
+        let output = path [||]
+        Assert.IsFalse(Eng.buildPath(ring, false, false, output, 1., 0.))
+        Assert.IsFalse(Eng.buildPath(ring, false, true, output, 1., 0.), "open output still needs two distinct vertices")
+
+    [<TestMethod>]
     member _.PointsSeventyUnitsFromLongDiagonalAreNotOnItsBoundary () =
         // Both points are ~70.7 units from the diagonal: far beyond 1e-5.
         // An angular zero test used to call both of them IsOn.
