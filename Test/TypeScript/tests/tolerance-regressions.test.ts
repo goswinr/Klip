@@ -41,7 +41,7 @@ describe('Float topology and tolerance defaults', () => {
 
   test('assigning the reported tolerance does not change any default threshold', () => {
     const c = Engine.Clipper64$1_$ctor();
-    const thresholds = () => [c.coordEqTol, c.mergeVertexToleranceSqrd, c.nearTopYToleranceCap, c.smallTriangleTol, c.splitAreaTol];
+    const thresholds = () => [c.coordEqTol, c.mergeVertexTolerance, c.nearTopYToleranceCap, c.smallTriangleTol, c.splitAreaTol];
     const before = thresholds();
     Engine.Clipper64$1__set_Tolerance_5E38073B(c, Engine.Clipper64$1__get_Tolerance(c));
     expect(thresholds()).toEqual(before);

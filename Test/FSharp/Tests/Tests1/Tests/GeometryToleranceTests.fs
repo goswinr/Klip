@@ -56,6 +56,13 @@ type GeometryToleranceTests () =
             Assert.AreEqual(sign*expected*2., Eng.areaTriangle(p.GetX 0,p.GetY 0,p.GetX 1,p.GetY 1,p.GetX 2,p.GetY 2), "triangle double area")
 
     [<TestMethod>]
+    member _.PerpendicularDistanceComparisonDoesNotSquareAwayTinyOffsets () =
+        for scale in [1e-100; 1.; 1e100; 1e200] do
+            Assert.IsTrue(Eng.distFromLineGreaterThanTolerance(0., 0.,scale, 0.,0., scale,0.), sprintf "nonzero offset at scale %g" scale)
+            Assert.IsFalse(Eng.distFromLineGreaterThanTolerance(scale, 0.,scale, 0.,0., scale,0.), "inclusive distance boundary")
+            Assert.IsTrue(Eng.distFromLineGreaterThanTolerance(scale*0.5, 0.,scale, 0.,0., scale,0.))
+
+    [<TestMethod>]
     member _.ClosedRingValidationRejectsTooFewVerticesAndAppliesTheTriangleWindow () =
         let check tolerance coords expected =
             Assert.AreEqual(expected, Eng.isValidClosedPath(tolerance, asRing (path coords)))

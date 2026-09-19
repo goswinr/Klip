@@ -88,7 +88,7 @@ type Clipper64<'Z>() =
 
     // new tolerance properties that Clipper2 didn't have:
     let mutable coordEqTol = 1e-5 // per-instance; exposed as CoordEqTolerance
-    let mutable mergeVertexToleranceSqrd = coordEqTol * coordEqTol // defaults to the same value as coordEqTol but can be tuned independently; exposed as MergeVertexTolerance
+    let mutable mergeVertexTolerance = coordEqTol // defaults to the same value as coordEqTol but can be tuned independently; exposed as MergeVertexTolerance
 
     let mutable colinTolSqrd = 1e-6  // 1e-3 * 1e-3; per-instance cleanup/join angle, exposed as ColinearityTolerance
     let mutable horzAngleTol = 1e-5 // per-instance; exposed as HorizontalAngleTolerance, kept at 1/100 of the colinearity tolerance via AngleTolerance
@@ -855,7 +855,7 @@ type Clipper64<'Z>() =
         elif (isNearOrAboveTopY ptY ae || isNearOrAboveTopY ptY prev) && (ae.botY > ptY || prev.botY > ptY) then
                 ()
         else
-            if checkCurrX && Eng.distFromLineSqrdGreaterThanTolerance ( mergeVertexToleranceSqrd, ptX, ptY, prev.botX, prev.botY, prev.topX, prev.topY) then
+            if checkCurrX && Eng.distFromLineGreaterThanTolerance ( mergeVertexTolerance, ptX, ptY, prev.botX, prev.botY, prev.topX, prev.topY) then
                 ()
             elif not (Geo.isColinear (colinTolSqrd, ae.topX, ae.topY, ptX, ptY, prev.topX, prev.topY)) then
                 ()
@@ -886,7 +886,7 @@ type Clipper64<'Z>() =
         elif (isNearOrAboveTopY ptY ae || isNearOrAboveTopY ptY next) && (ae.botY > ptY || next.botY > ptY) then
                 ()
         else
-            if checkCurrX && Eng.distFromLineSqrdGreaterThanTolerance ( mergeVertexToleranceSqrd, ptX, ptY, next.botX, next.botY, next.topX, next.topY) then
+            if checkCurrX && Eng.distFromLineGreaterThanTolerance ( mergeVertexTolerance, ptX, ptY, next.botX, next.botY, next.topX, next.topY) then
                 ()
             elif not (Geo.isColinear (colinTolSqrd, ae.topX, ae.topY, ptX, ptY, next.topX, next.topY)) then
                 ()
@@ -2328,10 +2328,10 @@ type Clipper64<'Z>() =
     [<Obsolete("Expert override, hidden from the public API surface (but still functional) - prefer the Tolerance property, which sets all five scale-dependent tolerances coherently from one absolute tolerance.")>]
     member _.MergeVertexTolerance
         with get() : float =
-            mergeVertexToleranceSqrd |> Math.Sqrt
+            mergeVertexTolerance
         and set(v: float) : unit =
             if v >= 0.0 && v <= 1e12 then
-                mergeVertexToleranceSqrd <- v * v
+                mergeVertexTolerance <- v
             else
                 invalidArg "MergeVertexTolerance" $"Merge vertex tolerance must be between 0.0 and 1e12. Got {v}."
 
@@ -2590,7 +2590,7 @@ type Clipper64<'Z>() =
                 checkCoordinateToleranceChange tolerance
                 if tolerance <> coordEqTol then
                     coordEqTol <- tolerance
-                    mergeVertexToleranceSqrd <- tolerance * tolerance
+                    mergeVertexTolerance <- tolerance
                     nearTopYToleranceCap <- tolerance
                     smallTriangleTol <- tolerance
                     splitAreaTol <- tolerance * tolerance

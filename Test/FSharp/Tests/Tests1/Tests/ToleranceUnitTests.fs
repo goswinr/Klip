@@ -73,6 +73,13 @@ type ToleranceUnitTests () =
         Assert.AreEqual(1e-7, c.HorizontalAngleTolerance)
 
     [<TestMethod>]
+    member _.MergeDistanceRetainsSubnormalAndTinyPositiveToleranceValues () =
+        let c = Clipper64<unit>()
+        for tolerance in [Double.Epsilon; 1e-200; 1e-100; 1e-5] do
+            c.MergeVertexTolerance <- tolerance
+            Assert.AreEqual(tolerance, c.MergeVertexTolerance)
+
+    [<TestMethod>]
     member _.AngleAndSineToleranceRangesRoundTripIncludingExactMode () =
         let c = Clipper64<unit>()
         c.AngleTolerance <- 0.

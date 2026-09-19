@@ -364,17 +364,10 @@ module internal Eng =
         outRec.boundsBottom <= outRec.boundsTop || outRec.boundsRight <= outRec.boundsLeft
 
 
-    /// Perpendicular distance from pt to line (line1,line2) squared > distance tolerance squared?
-    let distFromLineSqrdGreaterThanTolerance ( distanceToleranceSqrd:float, ptX:float, ptY:float, line1X:float, line1Y:float, line2X:float, line2Y:float) : bool =
-        let a = ptX - line1X
-        let b = ptY - line1Y
-        let c = line2X - line1X
-        let d = line2Y - line1Y
-        if c = 0.0 && d = 0.0 then
-            false
-        else
-            let cross = a * d - c * b
-            (cross * cross) / (c*c + d*d) > distanceToleranceSqrd // this used to be just 0.25 in the past in Original Clipper2 in CheckJoinLeft function
+    /// Compare perpendicular distance directly: squaring can erase tiny offsets or
+    /// overflow large ones. Coincident line endpoints impose no distance restriction.
+    let distFromLineGreaterThanTolerance (distanceTolerance: float, ptX: float, ptY: float, line1X: float, line1Y: float, line2X: float, line2Y: float) : bool =
+        not (Geo.pointWithinLineDistance distanceTolerance (ptX, ptY, line1X, line1Y, line2X, line2Y))
 
     let inline addToLocalMinimaList (vert: Vertex<'Z>, pathType: PathType, isOpen: bool,  minimaList: ResizeArray<LocalMinima<'Z>>) : unit =
         // make sure the vertex is added only once ...
