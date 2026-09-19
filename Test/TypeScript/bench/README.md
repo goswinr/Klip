@@ -29,6 +29,7 @@ triangulation, and offset/inflate cases, which Klip doesn't expose). Each
 | `bench/klip-helpers.ts`              | Duck-typed `{xys, zs}` adapter and Klip ops re-export         |
 | `bench/wasm-helpers.ts`              | Published `clipper2-wasm` loader and `Paths64` adapter        |
 | `bench/clipping-operations.bench.ts` | Side-by-side clipper2-ts vs Klip vs clipper2-wasm benches     |
+| `bench/scanline-threshold.mjs`       | Sweep of the scanline-container threshold on two grid shapes  |
 
 Klip inputs are pre-converted to its flat-buffer `Path64` shape outside the
 timed regions (mirroring how clipper2-ts excludes input setup). The adapter
@@ -40,6 +41,7 @@ Run:
 ```bash
 npm run build   # rebuild _dist/Klip.mjs if F# sources changed
 npm run bench   # vitest bench --run
+npm run bench:scanline   # scanline-container threshold sweep
 ```
 
 The Vitest benchmark reporter keeps Klip as the final summary reference: Klip
@@ -48,16 +50,30 @@ throughput ratios versus Klip instead of versus the fastest run.
 
 ### Results
 
-Latest local run `npm run bench`, 30 side-by-side Vitest
+Latest local run (2026-09-19; Node 24.7.0) of `npm run bench`, 30 side-by-side Vitest
 benchmark groups. Averages below are the geometric mean of per-benchmark
 throughput (`hz`) ratios, so each benchmark group contributes equally.
 
 | Comparison | Average relative performance | Wins |
 | ---------- | ---------------------------- | ---- |
-| Klip vs `clipper2-ts` | `1.15x` as fast (`+14%`) | Klip faster in 27 / 30 groups |
-| Klip vs `clipper2-wasm` | `0.63x` as fast (`-36%`) | Klip faster in 4 / 30 groups |
+| Klip vs `clipper2-ts` | `1.32x` as fast (`+32%`) | Klip faster in 29 / 30 groups |
+| Klip vs `clipper2-wasm` | `0.73x` as fast (`-27%`) | Klip faster in 1 / 30 groups |
 | `clipper2-wasm` vs `clipper2-ts` | `1.8x` as fast (`+81%`) | `clipper2-wasm` faster in 30 / 30 groups |
 
-`clipper2-wasm` was the fastest implementation in 26 / 30 groups. Klip was
-fastest on several small and fresh-instance cases, while the WebAssembly package
-led most complex, reused-instance, and larger polygon cases.
+`clipper2-wasm` was the fastest implementation in 29 / 30 groups. Klip's only
+numerical win was the two-overlapping-rectangles union, which was effectively a tie.
+Benchmark samples are intentionally short; the geometric means avoid letting the
+fastest tiny cases dominate the summary.
+
+### Scanline threshold
+
+`npm run bench:scanline` measures the median time per union while varying the
+number of pending scanlines at which the engine switches from its small array to
+the heap-plus-set container. The default is 64. At the largest measured workload
+(8,192 local minima), it was within 1% of the best threshold on both shapes and
+substantially better than always using the array.
+
+| Workload at 8,192 minima | Heap only | Default `T=64` | Best threshold | Array only |
+| ------------------------ | --------: | -------------: | -------------: | ---------: |
+| Rotated squares (all Ys distinct) | 47.132 ms | 46.901 ms | 46.613 ms (`T=256`) | 63.940 ms |
+| Upright diamonds (shared row Ys) | 12.576 ms | 12.407 ms | 12.382 ms (`T=16`) | 13.133 ms |

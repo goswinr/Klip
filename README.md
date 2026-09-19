@@ -277,8 +277,23 @@ before testing after any F# source change. The TypeScript/Fable build emits a se
 
 ## Performance
 
-On .NET, the local benchmark harness is roughly on par with Clipper2 C#. In JavaScript, the latest local
-run is about the same as `clipper2-ts` and about 80% slower than `clipper2-wasm` on average.
+Local measurements taken on 2026-09-19 (Windows, .NET 10.0.12, Node 24.7.0) show a mixed .NET profile
+and a strong JavaScript result. These are short, machine-local runs, so use them for relative direction
+rather than as publishable absolute timings.
+
+- **.NET vs Clipper2 2.0.0:** on the dense random-polygon harness, Klip's geometric-mean speed ratio was
+  `1.31x` across 8 operation/size pairs (faster in 6). At 500 edges it was `1.04x` to `1.08x` faster for
+  every operation; the 100-edge Difference and XOR cases were `2.76x` and `2.97x` faster, while
+  Intersection and Union were 7% and 14% slower. On the 17 representative fixture cases, Klip was
+  `0.84x` of Clipper2's speed overall (about 16% slower), leading only the medium XOR case. Klip currently
+  allocates about `1.6x` to `9x` more managed memory.
+- **JavaScript:** across 30 side-by-side operations, Klip was `1.32x` as fast as `clipper2-ts` (29 wins),
+  `0.73x` as fast as `clipper2-wasm` (1 numerical win), and `clipper2-wasm` was `1.80x` as fast as
+  `clipper2-ts` (30 wins). WebAssembly led 29 groups; its one near-tie was the two-overlapping-rectangles
+  union.
+- **Scanline threshold:** the default threshold of 64 stayed within 1% of the best tested threshold at
+  8,192 local minima on both distinct- and shared-scanline workloads; it was substantially faster than
+  the array-only strategy at that scale.
 
 See [`Test/TypeScript/bench/README.md`](https://github.com/goswinr/Klip/blob/main/Test/TypeScript/bench/README.md)
 and [`Test/README.md`](https://github.com/goswinr/Klip/blob/main/Test/README.md).

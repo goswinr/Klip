@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-09-19
+
 ### Fixed
 - Keep exactly incident boundary points classified as on-edge when tolerance increases from zero to a tiny positive value.
 - Bound angular vertex cleanup by absolute perpendicular deviation, preserving large thin geometry. Reject one- and two-vertex closed rings, apply small-triangle culling during ring validation, and recheck output vertex counts after deduplication.
@@ -125,6 +127,7 @@ spike it propped up in half-snapped touching-polygon unions.
 ### Changed
 - First release of Port of Clipper2 , ported and adapted from clipper2-ts version 2.0.1-15 to F#
 
+[4.0.0]: https://github.com/goswinr/Klip/compare/3.1.1...4.0.0
 [3.1.1]: https://github.com/goswinr/Klip/compare/3.1.0...3.1.1
 [3.1.0]: https://github.com/goswinr/Klip/compare/3.0.0...3.1.0
 [3.0.0]: https://github.com/goswinr/Klip/compare/2.0.1153...3.0.0

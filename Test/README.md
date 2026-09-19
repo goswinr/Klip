@@ -45,11 +45,14 @@ See `TypeScript/bench/README.md` for details on the JS benchmarks.
 ```bash
 cd Test/TypeScript
 npm run build   # rebuild _dist/Klip.mjs if F# sources changed
-npm run bench    # vitest bench --run
+npm run bench            # side-by-side Vitest operation benchmarks
+npm run bench:scanline   # scanline-container threshold sweep
 cd ../..
 ```
 
-Compiled to JS with Fable `Klip` is slightly faster than `clipper2-ts`, but still almost 2x slower than `clipper2-wasm`.
+On the 2026-09-19 local run, Fable-compiled Klip was `1.32x` as fast as `clipper2-ts` in 29 of 30
+benchmark groups, and `0.73x` as fast as `clipper2-wasm`. See
+[`TypeScript/bench/README.md`](TypeScript/bench/README.md) for methodology and the full current summary.
 
 ## Running F# Benchmarks
 
@@ -59,32 +62,18 @@ and triangulation aren't exposed by Klip.
 
 ```bash
 dotnet run -c Release --project Test/FSharp/Benchmark/Benchmark.csproj -- --join
+dotnet run -c Release --project Test/FSharp/Benchmark/Benchmark.csproj -- --filter '*VitestFixtureBenchmarks*'
 ```
 
-Surprisingly Klip is 5% to 30 % faster than Clipper2 using the original Clipper2 benchmarks.
+The two suites characterize different workloads, so neither should be treated as the whole story:
 
-
-|                Method | EdgeCount |        Mean | Error |    StdDev |    Gen 0 |    Gen 1 |    Gen 2 |   Allocated |
-|---------------------- |---------- |------------:|------:|----------:|---------:|---------:|---------:|------------:|
-| Clipper2_Intersection |       100 |    767.1 us |    NA |   2.74 us |  23.4375 |   7.8125 |        - |    311.8 KB |
-|     Klip_Intersection |       100 |    638.9 us |    NA |   6.14 us |  46.8750 |  15.6250 |        - |    591.3 KB |
-|        Clipper2_Union |       100 |    914.8 us |    NA |  42.70 us |  15.6250 |        - |        - |   254.04 KB |
-|            Klip_Union |       100 |    603.3 us |    NA |  25.23 us |  39.0625 |   7.8125 |        - |   507.51 KB |
-|   Clipper2_Difference |       100 |    712.4 us |    NA |   0.11 us |  15.6250 |        - |        - |   283.83 KB |
-|       Klip_Difference |       100 |    628.6 us |    NA |   8.67 us |  39.0625 |  15.6250 |        - |   546.44 KB |
-|          Clipper2_Xor |       100 |    832.5 us |    NA |  12.21 us |  39.0625 |  15.6250 |        - |   503.63 KB |
-|              Klip_Xor |       100 |    725.0 us |    NA |  15.41 us |  62.5000 |  31.2500 |        - |   796.88 KB |
-| Clipper2_Intersection |       500 | 21,498.7 us |    NA | 111.93 us | 289.0625 | 273.4375 | 125.0000 |  3551.83 KB |
-|     Klip_Intersection |       500 | 20,717.4 us |    NA |  11.92 us | 867.1875 | 812.5000 |        - | 10692.42 KB |
-|        Clipper2_Union |       500 | 18,311.8 us |    NA | 422.10 us |  93.7500 |  62.5000 |        - |  1189.27 KB |
-|            Klip_Union |       500 | 17,895.8 us |    NA |  41.48 us | 640.6250 | 585.9375 |        - |  7869.52 KB |
-|   Clipper2_Difference |       500 | 20,985.8 us |    NA | 220.66 us | 203.1250 | 195.3125 |  46.8750 |  2060.38 KB |
-|       Klip_Difference |       500 | 18,471.7 us |    NA |   3.46 us | 726.5625 | 687.5000 |        - |  8931.73 KB |
-|          Clipper2_Xor |       500 | 22,552.5 us |    NA |  19.20 us | 343.7500 | 328.1250 | 148.4375 |  4355.15 KB |
-|              Klip_Xor |       500 | 21,551.2 us |    NA | 748.48 us | 968.7500 | 929.6875 |        - | 11915.43 KB |
-
-
-
+- The dense random-polygon suite gave Klip a `1.31x` geometric-mean speed ratio across 8 pairs (6 wins).
+  At 500 edges all four operations were 4-8% faster; at 100 edges, Difference and XOR were 2.76-2.97x
+  faster while Intersection and Union were 7% and 14% slower.
+- The 17 fixture-based cases gave Klip a `0.84x` geometric-mean speed ratio (about 16% slower), with one
+  small-XOR win. The largest stable gaps are grid unions and small simple unions.
+- Klip allocates about 1.6-9x more managed memory than Clipper2 in these runs. BenchmarkDotNet uses a
+  short local configuration; compare ratios, not its single machine's absolute timings.
 
 ## What's covered
 
