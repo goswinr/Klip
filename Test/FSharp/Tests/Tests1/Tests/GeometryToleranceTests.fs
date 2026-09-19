@@ -37,6 +37,15 @@ type GeometryToleranceTests () =
         assertContainmentWithin coordTol expected x y polygon
 
     [<TestMethod>]
+    member _.AngularCollinearityDoesNotTurnRightAnglesIntoStraightLinesAtExtremeScales () =
+        for scale in [1e-200; 1e-90; 1.; 1e90; 1e200] do
+            Assert.IsFalse(Geo.isColinear(1e-6, 0.,0., scale,0., scale,scale), sprintf "right angle at scale %g" scale)
+            Assert.IsTrue(Geo.isColinear(1e-6, 0.,0., scale,scale, 0.,0.), "a true reversal remains collinear")
+            Assert.IsTrue(Geo.isColinear(0., 0.,0., scale,0., 2.*scale,0.), "exact straight run")
+            Assert.AreEqual(-1, Geo.dotProductSign(0.,0., scale,scale, 0.,0.), "a reversal retains its sign even when its raw dot product underflows")
+            Assert.AreEqual(1, Geo.dotProductSign(0.,0., scale,scale, 2.*scale,2.*scale))
+
+    [<TestMethod>]
     member _.ClosedRingValidationRejectsTooFewVerticesAndAppliesTheTriangleWindow () =
         let check tolerance coords expected =
             Assert.AreEqual(expected, Eng.isValidClosedPath(tolerance, asRing (path coords)))

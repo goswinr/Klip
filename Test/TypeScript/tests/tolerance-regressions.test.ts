@@ -3,13 +3,19 @@ import { Klip } from './klip-api';
 import { areaPaths, makePath, PointInPolygonResult } from './adapter';
 // Exercise the actual Fable predicates, not the independent test adapter's PIP.
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
-import { Geo_pointInPolygon, Geo_segsIntersectNotInclusive } from '../_js/Src/Core.js';
+import { Geo_pointInPolygon, Geo_segsIntersectNotInclusive, Geo_isColinear, Geo_dotProductSign } from '../_js/Src/Core.js';
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
 import { pointInOpPolygon } from '../_js/Src/EngineUtil.js';
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
 import * as Engine from '../_js/Src/Engine.js';
 
 describe('Float topology and tolerance defaults', () => {
+  test.each([1e-200, 1e-90, 1, 1e90, 1e200])('angle predicates retain their meaning at scale %s', s => {
+    expect(Geo_isColinear(1e-6, 0, 0, s, 0, s, s)).toBe(false);
+    expect(Geo_isColinear(1e-6, 0, 0, s, s, 0, 0)).toBe(true);
+    expect(Geo_dotProductSign(0, 0, s, s, 0, 0)).toBe(-1);
+    expect(Geo_dotProductSign(0, 0, s, s, 2*s, 2*s)).toBe(1);
+  });
   test('angular cleanup preserves a large thin triangle beyond the distance tolerance', () => {
     const result = Klip.unionSelf([makePath([0, 0, 1e6, 1e6, 500000, 500001])]);
     expect(result).toHaveLength(1);

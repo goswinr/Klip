@@ -381,11 +381,16 @@ module internal Geo =
     /// True when the cross product of edge vectors U=(a,c) and W=(d,b) is effectively
     /// zero relative to the edge lengths, i.e. the three points are colinear, given the
     /// squared colinearity tolerance `colinTolSqrd`.
-    /// Compared in squared form to avoid a sqrt: `(a*b - c*d)^2 <= tolerance^2 * |U|^2 * |W|^2`.
+    /// Normalize each vector separately so neither fourth powers nor tiny cross-product
+    /// squares can overflow or underflow. The stored tolerance is still pre-squared.
     let inline crossIsZero (colinTolSqrd: float) (a: float) (b: float) (c: float) (d: float) : bool =
-        let cross = a * b - c * d
-        let scaleSq = (a * a + c * c) * (b * b + d * d)
-        cross * cross <= colinTolSqrd * scaleSq // needs `<=` because both sides might be zero
+        let uScale = max (abs a) (abs c)
+        let vScale = max (abs b) (abs d)
+        if uScale = 0. || vScale = 0. then true
+        else
+            let ax, cy = a / uScale, c / uScale
+            let by, dx = b / vScale, d / vScale
+            abs (ax * by - cy * dx) <= sqrt colinTolSqrd * sqrt ((ax*ax + cy*cy) * (by*by + dx*dx))
 
 
     /// Orientation for topology, independent of the angle used for colinear cleanup.
@@ -428,8 +433,13 @@ module internal Geo =
         let d = pt3Y - pt2Y
         a * b + c * d
 
-    let inline dotProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
-        let sum = dotProduct (pt1X, pt1Y, pt2X, pt2Y, pt3X, pt3Y)
+    let dotProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
+        let ax, ay = pt2X - pt1X, pt2Y - pt1Y
+        let bx, by = pt3X - pt2X, pt3Y - pt2Y
+        let aScale, bScale = max (abs ax) (abs ay), max (abs bx) (abs by)
+        let sum =
+            if aScale = 0. || bScale = 0. then 0.
+            else (ax / aScale) * (bx / bScale) + (ay / aScale) * (by / bScale)
         // 0.0 is OK to check against, no tolerance needed here ,
         // Its only caller first checks collinearity and removes coincident vertices ([Engine.fs (line 2019)](/D:/Git/_Euclid_/Klip/Src/Engine.fs:2019)).
         // It then distinguishes a straight continuation from a U-turn: the normalized dot product is near +1 or −1, safely away from zero.
