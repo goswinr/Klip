@@ -33,188 +33,66 @@ open System
 module Snap =
 
     [<NoComparison;NoEquality>]
-    type private SnapX =
-        {
-        mutable x: float
-        vs: ResizeArray<float>
-        idx: int
-        }
+    type private Coordinate =
+        { value: float; buffer: ResizeArray<float>; index: int }
 
-    [<NoComparison;NoEquality>]
-    type private SnapY =
-        {
-        mutable y: float
-        vs: ResizeArray<float>
-        idx: int
-        }
-
-    /// Default per-axis clustering distance, used when no tolerance is supplied.
-    /// See tests in .\Test\Rhino\unionAllScalesRh.fsx.
+    /// Suggested per-axis distance, matching Clipper64's default distance tolerance.
+    /// Pass it explicitly: the snapping functions always require a tolerance.
     [<Literal>]
-    let DefaultTolerance : float = 1e-8
+    let DefaultTolerance : float = 1e-5
 
-    #if !FABLE_COMPILER
-    let private xSorter (a: SnapX) (b: SnapX) : int =
-        if a.x < b.x then -1
-        elif a.x > b.x then 1
-        else 0
+    let private snapAxis tolerance (coordinates: ResizeArray<Coordinate>) =
+        coordinates.Sort(fun a b -> compare a.value b.value)
+        let mutable start = 0
+        while start < coordinates.Count do
+            let origin = coordinates[start].value
+            let mutable finish = start + 1
+            let mutable meanDelta = 0.
+            // Bound the entire cluster width. Near-equality is not transitive.
+            while finish < coordinates.Count && coordinates[finish].value - origin <= tolerance do
+                let delta = coordinates[finish].value - origin
+                meanDelta <- meanDelta + (delta - meanDelta) / float (finish - start + 1)
+                finish <- finish + 1
+            // Averaging local deltas avoids overflowing a sum of absolute coordinates,
+            // and leaves identical coordinates exactly unchanged, including at zero tolerance.
+            let mean = origin + meanDelta
+            for i = start to finish - 1 do
+                let coordinate = coordinates[i]
+                coordinate.buffer[coordinate.index] <- mean
+            start <- finish
 
-    let private ySorter (a: SnapY) (b: SnapY) : int =
-        if a.y < b.y then -1
-        elif a.y > b.y then 1
-        else 0
-    #endif
-
-    let private sortX (xs: ResizeArray<SnapX>) : unit =
-        #if FABLE_COMPILER
-            Fable.Core.JsInterop.emitJsStatement (xs) "$0.sort((a, b) => a.x - b.x)"
-        #else
-            xs.Sort(xSorter)
-        #endif
-
-    let private sortY (ys: ResizeArray<SnapY>) : unit =
-        #if FABLE_COMPILER
-            Fable.Core.JsInterop.emitJsStatement (ys) "$0.sort((a, b) => a.y - b.y)"
-        #else
-            ys.Sort(ySorter)
-        #endif
-
-    /// <summary>
-    /// Snaps the X and Y coordinates of every path across all the given path collections in
-    /// place, treating them as one shared coordinate set (so a vertex in one collection can
-    /// snap onto a near-coincident vertex in another, provided both are part of near-axis-aligned
-    /// segment runs within their own paths - see the module remarks). Use this to snap subject
-    /// and clip paths together before clipping.
-    /// </summary>
-    /// <param name="tolerance">Per-axis clustering distance (absolute coordinate units).</param>
-    /// <param name="pathCollections">The path collections whose coordinate buffers are mutated in place.</param>
+    /// Snaps closed paths across all collections together, in place. A vertex qualifies
+    /// on an axis when either of its actual neighbours is within tolerance on that axis.
+    /// Each vertex contributes once. Sorted clusters have width at most tolerance and
+    /// snap to their mean; a chain of near neighbours does not form one unbounded cluster.
+    /// This is a single preprocessing pass, not an iterative convergence operation.
+    /// All coordinates and the nonnegative tolerance must be finite; validation is atomic.
     let xAndY (tolerance: float) (pathCollections: seq<Paths64<'Z>>) : unit =
-        let snapXList = ResizeArray<SnapX>()
-        let snapYList = ResizeArray<SnapY>()
-
-        // (1) first collect all vertical or horizontal segment runs, remembering original indices
+        if not (tolerance >= 0.) || Double.IsInfinity tolerance then
+            invalidArg "tolerance" "Snap tolerance must be finite and nonnegative."
+        let xs = ResizeArray<Coordinate>()
+        let ys = ResizeArray<Coordinate>()
+        // Collect before writing anything, so qualification uses the original geometry
+        // and a bad coordinate in a later collection cannot leave partially snapped input.
         for paths in pathCollections do
-            for j = 0 to paths |> Rarr.lastIdx do
-                let xys = (Rarr.getIdx j paths).XYs
-                let cnt = Rarr.len xys
-                if cnt >= 2 then
-                    let mutable xLastOK = true
-                    let mutable yLastOK = true
-                    let mutable prevX = Rarr.getIdx (cnt-2) xys // start with last vertex, so we can compare it to the first
-                    let mutable prevY = Rarr.getIdx (cnt-1) xys
-                    // check last with first:
-                    // X:
-                    let mutable x = Rarr.getIdx 0 xys
-                    if abs(x - prevX) <= tolerance then
-                        snapXList.Add { x = prevX; vs = xys; idx = cnt-2 }
-                        snapXList.Add { x = x    ; vs = xys; idx = 0 }
-                        xLastOK <- false
-                    else
-                        prevX <- x
-                    //Y:
-                    let mutable y = Rarr.getIdx 1 xys
-                    if abs(y - prevY) <= tolerance then
-                        snapYList.Add { y = prevY; vs = xys; idx = cnt-1 }
-                        snapYList.Add { y = y    ; vs = xys; idx = 1 }
-                        yLastOK <- false
-                    else
-                        prevY <- y
-                    // loop rest:
-                    let mutable k = 2
-                    while k < cnt do
-                        x <- Rarr.getIdx k xys
-                        if abs(x - prevX) <= tolerance then
-                            if xLastOK then // also add starting vertex of the run, but only once
-                                snapXList.Add { x = prevX; vs = xys; idx = k-2 }
-                                xLastOK <- false
-                            snapXList.Add { x = x; vs = xys; idx = k }
-                        else
-                            prevX <- x
-                            xLastOK <- true
-
-                        y <- Rarr.getIdx (k + 1) xys
-                        if abs(y - prevY) <= tolerance then
-                            if yLastOK then // also add starting vertex of the run, but only once
-                                snapYList.Add { y = prevY; vs = xys; idx = k-1 }
-                                yLastOK <- false
-                            snapYList.Add { y = y; vs = xys; idx = k+1 }
-                        else
-                            prevY <- y
-                            yLastOK <- true
-
-                        k <- k + 2
-
-        // (2) sort the snap lists
-        sortX snapXList
-        sortY snapYList
-
-        // (3.1) assign mean values to close coordinates
-        let yLen = snapYList |> Rarr.len
-        if yLen > 0 then
-            let mutable prev = (Rarr.getIdx 0 snapYList).y
-            let mutable mergeStartIdx = -1
-            let mutable i = 1
-            let mutable meanY = 0.0
-            let inline flushYRun (mergeEndIdx: int) =
-                if mergeStartIdx >= 0 then
-                    let mean = meanY / float (mergeEndIdx - mergeStartIdx + 1)
-                    for j = mergeStartIdx to mergeEndIdx do
-                        (Rarr.getIdx j snapYList).y <- mean
-                    meanY <- 0.0
-                    mergeStartIdx <- -1
-
-            while i < yLen do
-                let curr = (Rarr.getIdx i snapYList).y
-                if curr - prev <= tolerance then
-                    meanY <- meanY + curr
-                    if mergeStartIdx = -1 then
-                        meanY <- meanY + prev
-                        mergeStartIdx <- i - 1
-                    // do not update prev here
-                else
-                    // we are at the end of a run of close coordinates, assign mean value to all in the run
-                    flushYRun (i - 1)
-                    prev <- curr
-                i <- i + 1
-            flushYRun (yLen - 1)
-
-        // (3.2) repeat for X coordinates
-        let xLen = snapXList |> Rarr.len
-        if xLen > 0 then
-            let mutable prev = (Rarr.getIdx 0 snapXList).x
-            let mutable mergeStartIdx = -1
-            let mutable i = 1
-            let mutable meanX = 0.0
-            let inline flushXRun (mergeEndIdx: int) =
-                if mergeStartIdx >= 0 then
-                    let mean = meanX / float (mergeEndIdx - mergeStartIdx + 1)
-                    for j = mergeStartIdx to mergeEndIdx do
-                        (Rarr.getIdx j snapXList).x <- mean
-                    meanX <- 0.0
-                    mergeStartIdx <- -1
-
-            while i < xLen do
-                let curr = (Rarr.getIdx i snapXList).x
-                if curr - prev <= tolerance then
-                    meanX <- meanX + curr
-                    if mergeStartIdx = -1 then
-                        meanX <- meanX + prev
-                        mergeStartIdx <- i - 1
-                    // do not update prev here
-                else
-                    // we are at the end of a run of close coordinates, assign mean value to all in the run
-                    flushXRun (i - 1)
-                    prev <- curr
-                i <- i + 1
-            flushXRun (xLen - 1)
-
-        // (4) now replace the original coordinates in the input paths with the snapped coordinates
-        for i = 0 to snapXList |> Rarr.lastIdx do
-            let sx = Rarr.getIdx i snapXList
-            sx.vs |> Rarr.setIdx sx.idx sx.x
-        for i = 0 to snapYList |> Rarr.lastIdx do
-            let sy = Rarr.getIdx i snapYList
-            sy.vs |> Rarr.setIdx sy.idx sy.y
+            for path in paths do
+                let xys = path.XYs
+                for value in xys do
+                    if Double.IsNaN value || Double.IsInfinity value then
+                        invalidArg "pathCollections" "Snap coordinates must be finite."
+                let count = path.PointCount
+                for i = 0 to count - 1 do
+                    let previous = (i + count - 1) % count
+                    let next = (i + 1) % count
+                    for axis = 0 to 1 do
+                        let index = 2*i + axis
+                        let value = xys[index]
+                        if abs (value - xys[2*previous+axis]) <= tolerance ||
+                           abs (value - xys[2*next+axis]) <= tolerance then
+                            let target = if axis = 0 then xs else ys
+                            target.Add { value = value; buffer = xys; index = index }
+        snapAxis tolerance xs
+        snapAxis tolerance ys
 
     /// <summary>
     /// Snaps the X and Y coordinates of every path in <paramref name="paths"/> in place.
