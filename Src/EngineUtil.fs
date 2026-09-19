@@ -369,6 +369,11 @@ module internal Eng =
     let distFromLineGreaterThanTolerance (distanceTolerance: float, ptX: float, ptY: float, line1X: float, line1Y: float, line2X: float, line2Y: float) : bool =
         not (Geo.pointWithinLineDistance distanceTolerance (ptX, ptY, line1X, line1Y, line2X, line2Y))
 
+    let isNearOrAboveTopY (factor: float, cap: float, ptY: float, topY: float, botY: float) : bool =
+        let topTol = min cap (Math.Abs(botY - topY) * factor)
+        // Adding a small margin to a large absolute ordinate can round it away.
+        ptY - topY < topTol
+
     let inline addToLocalMinimaList (vert: Vertex<'Z>, pathType: PathType, isOpen: bool,  minimaList: ResizeArray<LocalMinima<'Z>>) : unit =
         // make sure the vertex is added only once ...
         if (vert.flags &&& VertexFlags.LocalMin) <> VertexFlags.None then

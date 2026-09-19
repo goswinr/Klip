@@ -37,6 +37,15 @@ type GeometryToleranceTests () =
         assertContainmentWithin coordTol expected x y polygon
 
     [<TestMethod>]
+    member _.NearTopGuardKeepsItsPositiveWindowAtLargeCoordinateOffsets () =
+        for top in [0.; 1e12; -1e12] do
+            Assert.IsTrue(Eng.isNearOrAboveTopY(1e-4, 1e-5, top, top, top+1.), "positive margin includes the top itself")
+            Assert.IsFalse(Eng.isNearOrAboveTopY(1e-4, 0., top, top, top+1.), "zero margin excludes the top itself")
+            Assert.IsTrue(Eng.isNearOrAboveTopY(1e-4, 0., top-1., top, top+1.), "points strictly above still qualify")
+        Assert.IsTrue(Eng.isNearOrAboveTopY(0.25, 1., 0.125, 0., 1.), "height-relative window")
+        Assert.IsFalse(Eng.isNearOrAboveTopY(0.25, 1., 0.25, 0., 1.), "strict upper boundary")
+
+    [<TestMethod>]
     member _.AngularCollinearityDoesNotTurnRightAnglesIntoStraightLinesAtExtremeScales () =
         for scale in [1e-200; 1e-90; 1.; 1e90; 1e200] do
             Assert.IsFalse(Geo.isColinear(1e-6, 0.,0., scale,0., scale,scale), sprintf "right angle at scale %g" scale)

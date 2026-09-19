@@ -833,8 +833,7 @@ type Clipper64<'Z>() =
     // `nearTopYToleranceCap` so very tall edges don't get an unboundedly wide guard.
     // Both constants are tunable via the NearTopYToleranceFactor / NearTopYToleranceCap properties.
     let isNearOrAboveTopY (ptY: float) (edge: ActiveEdge<'Z>) : bool =
-        let topTol = min nearTopYToleranceCap (Math.Abs(edge.botY - edge.topY) * nearTopYToleranceFactor)
-        ptY < edge.topY + topTol
+        Eng.isNearOrAboveTopY(nearTopYToleranceFactor, nearTopYToleranceCap, ptY, edge.topY, edge.botY)
 
     let checkJoinLeft (ae: ActiveEdge<'Z>, ptX: float, ptY: float, ptZ: 'Z, checkCurrX: bool) : unit =
         let prev = ae.prevInAEL
