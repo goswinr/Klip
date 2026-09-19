@@ -9,7 +9,7 @@ updates:
       default-days: 7
 
   - package-ecosystem: "nuget" # for fable and test frameworks
-    directory: "./Test/"
+    directory: "./Test/TypeScript/"
     schedule:
       interval: "weekly"
     cooldown:
