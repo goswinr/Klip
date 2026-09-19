@@ -487,7 +487,7 @@ module internal Geo =
         let b = pt2Y - sharedY
         let c = sharedY - pt1Y
         let d = pt2X - sharedX
-        productsAreEqual (colinTolSqrd, a, b, c, d)
+        productsAreEqual (colinTolerance, a, b, c, d)
 
     let inline dotProduct (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : float =
         let a = pt2X - pt1X
