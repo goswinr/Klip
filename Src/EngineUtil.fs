@@ -471,6 +471,11 @@ module internal Eng =
         isNotNull op && op.next =!= op &&
         op.next =!= op.prev && not (isVerySmallTriangle (smallTriangleTol, op))
 
+    // Test-facing non-inline entry point. Keeping the hot-path predicate inline avoids
+    // an extra call in output cleanup, while this lets generic test assertions consume it.
+    let isValidClosedPathNonInline (smallTriangleTol: float, op: OutPt<'Z>) : bool =
+        isValidClosedPath (smallTriangleTol, op)
+
     let inline outrecIsAscending (hotEdge: ActiveEdge<'Z>) : bool =
         hotEdge === hotEdge.outrec.frontEdge
 

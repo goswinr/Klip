@@ -51,8 +51,10 @@ type GeometryToleranceTests () =
             Assert.IsFalse(Geo.isColinear(1e-3, 0.,0., scale,0., scale,scale), sprintf "right angle at scale %g" scale)
             Assert.IsTrue(Geo.isColinear(1e-3, 0.,0., scale,scale, 0.,0.), "a true reversal remains collinear")
             Assert.IsTrue(Geo.isColinear(0., 0.,0., scale,0., 2.*scale,0.), "exact straight run")
-            Assert.AreEqual(-1, Geo.dotProductSign(0.,0., scale,scale, 0.,0.), "a reversal retains its sign even when its raw dot product underflows")
-            Assert.AreEqual(1, Geo.dotProductSign(0.,0., scale,scale, 2.*scale,2.*scale))
+            // Use the non-inline forwarding entry point here: F# cannot inline this
+            // float-specialized helper into the generic MSTest assertion overload.
+            Assert.AreEqual(-1, Geo.dotProductSignNonInline(0.,0., scale,scale, 0.,0.), "a reversal retains its sign even when its raw dot product underflows")
+            Assert.AreEqual(1, Geo.dotProductSignNonInline(0.,0., scale,scale, 2.*scale,2.*scale))
 
     [<TestMethod>]
     member _.SignedAreasRetainThinGeometryAfterLargeTranslations () =
@@ -74,7 +76,7 @@ type GeometryToleranceTests () =
     [<TestMethod>]
     member _.ClosedRingValidationRejectsTooFewVerticesAndAppliesTheTriangleWindow () =
         let check tolerance coords expected =
-            Assert.AreEqual(expected, Eng.isValidClosedPath(tolerance, asRing (path coords)))
+            Assert.AreEqual(expected, Eng.isValidClosedPathNonInline(tolerance, asRing (path coords)))
         check 0. [|0.;0.|] false
         check 0. [|0.;0.; 10.;10.|] false
         check 1. [|0.;0.; 0.5;0.; 0.;10.|] false
