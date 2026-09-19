@@ -80,6 +80,15 @@ type ToleranceUnitTests () =
             Assert.AreEqual(tolerance, c.MergeVertexTolerance)
 
     [<TestMethod>]
+    member _.TinyPositiveAngularOverridesAreNotRoundedToExactModeBySquaring () =
+        let c = Clipper64<unit>()
+        for tolerance in [Double.Epsilon; 1e-200; 1e-100; 1e-3] do
+            c.ColinearityTolerance <- tolerance
+            Assert.AreEqual(tolerance, c.ColinearityTolerance)
+        c.ColinearityTolerance <- 1e-200
+        Assert.IsTrue(c.AngleTolerance > 0.)
+
+    [<TestMethod>]
     member _.AngleAndSineToleranceRangesRoundTripIncludingExactMode () =
         let c = Clipper64<unit>()
         c.AngleTolerance <- 0.

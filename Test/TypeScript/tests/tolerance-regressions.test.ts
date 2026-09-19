@@ -52,8 +52,8 @@ describe('Float topology and tolerance defaults', () => {
     expect(areaOutPt(ring[0])).toBe(0.1220703125);
   });
   test.each([1e-200, 1e-90, 1, 1e90, 1e200])('angle predicates retain their meaning at scale %s', s => {
-    expect(Geo_isColinear(1e-6, 0, 0, s, 0, s, s)).toBe(false);
-    expect(Geo_isColinear(1e-6, 0, 0, s, s, 0, 0)).toBe(true);
+    expect(Geo_isColinear(1e-3, 0, 0, s, 0, s, s)).toBe(false);
+    expect(Geo_isColinear(1e-3, 0, 0, s, s, 0, 0)).toBe(true);
     expect(Geo_dotProductSign(0, 0, s, s, 0, 0)).toBe(-1);
     expect(Geo_dotProductSign(0, 0, s, s, 2*s, 2*s)).toBe(1);
   });

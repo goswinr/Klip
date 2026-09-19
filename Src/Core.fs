@@ -457,24 +457,24 @@ module internal Geo =
     /// tolerance collapses to ~0 and the spike vertex is never recognized as colinear.
     /// This also lets colinear cleanup detect and close nearly 180-degree U-turn spikes.
     ///
-    /// Stored pre-squared (this is `tolerance^2`) to avoid squaring in `crossIsZero`.
+    /// Stored as an unsquared sine tolerance so tiny positive settings do not underflow.
     /// Carried by the caller (e.g. `Clipper64.ColinearityTolerance`, which exposes the
     /// un-squared `sin θ` tolerance) rather than a module-global, so two clips can use
     /// different colinearity tolerances without interfering.
 
     /// True when the cross product of edge vectors U=(a,c) and W=(d,b) is effectively
     /// zero relative to the edge lengths, i.e. the three points are colinear, given the
-    /// squared colinearity tolerance `colinTolSqrd`.
+    /// colinearity sine tolerance `colinTolerance`.
     /// Normalize each vector separately so neither fourth powers nor tiny cross-product
-    /// squares can overflow or underflow. The stored tolerance is still pre-squared.
-    let inline crossIsZero (colinTolSqrd: float) (a: float) (b: float) (c: float) (d: float) : bool =
+    /// squares can overflow or underflow.
+    let inline crossIsZero (colinTolerance: float) (a: float) (b: float) (c: float) (d: float) : bool =
         let uScale = max (abs a) (abs c)
         let vScale = max (abs b) (abs d)
         if uScale = 0. || vScale = 0. then true
         else
             let ax, cy = a / uScale, c / uScale
             let by, dx = b / vScale, d / vScale
-            abs (ax * by - cy * dx) <= sqrt colinTolSqrd * sqrt ((ax*ax + cy*cy) * (by*by + dx*dx))
+            abs (ax * by - cy * dx) <= colinTolerance * sqrt ((ax*ax + cy*cy) * (by*by + dx*dx))
 
 
     /// Orientation for topology, independent of the angle used for colinear cleanup.
@@ -493,19 +493,19 @@ module internal Geo =
 
 
     /// Returns true when the cross product a*b - c*d is effectively zero, i.e. the edge
-    /// vectors U=(a,c) and W=(d,b) are colinear (to within the squared tolerance colinTolSqrd).
+    /// vectors U=(a,c) and W=(d,b) are colinear (to within the sine tolerance colinTolerance).
     /// (Formerly an exact comparison; relaxed now that coordinates carry floating-point
     /// error instead of lying on the integer grid.)
-    let inline productsAreEqual (colinTolSqrd: float, a: float, b: float, c: float, d: float) : bool =
-        crossIsZero colinTolSqrd a b c d
+    let inline productsAreEqual (colinTolerance: float, a: float, b: float, c: float, d: float) : bool =
+        crossIsZero colinTolerance a b c d
 
-    let isColinear (colinTolSqrd: float, pt1X: float, pt1Y: float, sharedX: float, sharedY: float, pt2X: float, pt2Y: float) : bool =
+    let isColinear (colinTolerance: float, pt1X: float, pt1Y: float, sharedX: float, sharedY: float, pt2X: float, pt2Y: float) : bool =
         let a = sharedX - pt1X
         let b = pt2Y - sharedY
         let c = sharedY - pt1Y
         let d = pt2X - sharedX
-        if colinTolSqrd = 0. then crossProductSign (pt1X, pt1Y, sharedX, sharedY, pt2X, pt2Y) = 0
-        else productsAreEqual (colinTolSqrd, a, b, c, d)
+        if colinTolerance = 0. then crossProductSign (pt1X, pt1Y, sharedX, sharedY, pt2X, pt2Y) = 0
+        else productsAreEqual (colinTolerance, a, b, c, d)
 
     let inline dotProduct (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : float =
         let a = pt2X - pt1X

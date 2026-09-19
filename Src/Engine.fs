@@ -90,7 +90,7 @@ type Clipper64<'Z>() =
     let mutable coordEqTol = 1e-5 // per-instance; exposed as CoordEqTolerance
     let mutable mergeVertexTolerance = coordEqTol // defaults to the same value as coordEqTol but can be tuned independently; exposed as MergeVertexTolerance
 
-    let mutable colinTolSqrd = 1e-6  // 1e-3 * 1e-3; per-instance cleanup/join angle, exposed as ColinearityTolerance
+    let mutable colinTolerance = 1e-3 // per-instance cleanup/join angle, exposed as ColinearityTolerance
     let mutable horzAngleTol = 1e-5 // per-instance; exposed as HorizontalAngleTolerance, kept at 1/100 of the colinearity tolerance via AngleTolerance
     let mutable nearTopYToleranceFactor = 1e-4 // edge-height-relative part of the near-top join guard; tune via NearTopYToleranceFactor
     let mutable nearTopYToleranceCap = coordEqTol    // absolute ceiling of the near-top join guard; tune via NearTopYToleranceCap
@@ -851,7 +851,7 @@ type Clipper64<'Z>() =
         else
             if checkCurrX && Eng.distFromLineGreaterThanTolerance ( mergeVertexTolerance, ptX, ptY, prev.botX, prev.botY, prev.topX, prev.topY) then
                 ()
-            elif not (Geo.isColinear (colinTolSqrd, ae.topX, ae.topY, ptX, ptY, prev.topX, prev.topY)) then
+            elif not (Geo.isColinear (colinTolerance, ae.topX, ae.topY, ptX, ptY, prev.topX, prev.topY)) then
                 ()
             else
                 if ae.outrec.idx = prev.outrec.idx then
@@ -882,7 +882,7 @@ type Clipper64<'Z>() =
         else
             if checkCurrX && Eng.distFromLineGreaterThanTolerance ( mergeVertexTolerance, ptX, ptY, next.botX, next.botY, next.topX, next.topY) then
                 ()
-            elif not (Geo.isColinear (colinTolSqrd, ae.topX, ae.topY, ptX, ptY, next.topX, next.topY)) then
+            elif not (Geo.isColinear (colinTolerance, ae.topX, ae.topY, ptX, ptY, next.topX, next.topY)) then
                 ()
             else
                 if ae.outrec.idx = next.outrec.idx then
@@ -2014,7 +2014,7 @@ type Clipper64<'Z>() =
                 if (isNotNull op
                     && (xyEqual(op.x, op.y, op.prev.x, op.prev.y)
                         || xyEqual(op.x, op.y, op.next.x, op.next.y)
-                        || (Geo.isColinear (colinTolSqrd, op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y)
+                        || (Geo.isColinear (colinTolerance, op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y)
                             && Geo.pointWithinLineDistance coordEqTol (op.x, op.y, op.prev.x, op.prev.y, op.next.x, op.next.y)
                             && (not preserveColinear
                                 || Geo.dotProductSign (op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y) < 0))
@@ -2484,10 +2484,10 @@ type Clipper64<'Z>() =
     [<Obsolete("Expert override, hidden from the public API surface (but still functional) - normally set via the AngleTolerance property (in degrees) instead.")>]
     member _.ColinearityTolerance
         with get() : float =
-            Math.Sqrt colinTolSqrd
+            colinTolerance
         and set(v: float) : unit =
             if v >= 0.0 && v <= 0.1 then
-                colinTolSqrd <- v * v
+                colinTolerance <- v
             else
                 invalidArg "ColinearityTolerance" $"Colinearity tolerance must be between 0.0 and 0.1. Got {v}."
 
@@ -2550,12 +2550,12 @@ type Clipper64<'Z>() =
     /// </remarks>
     member _.AngleTolerance
         with get() : float =
-            Math.Asin(min 1.0 (Math.Sqrt colinTolSqrd)) * 180.0 / Math.PI
+            Math.Asin colinTolerance * 180.0 / Math.PI
         and set(degrees: float) : unit =
             if degrees >= 0.0 && degrees <= Math.Asin(0.1) * 180.0 / Math.PI then
-                if degrees <> Math.Asin(Math.Sqrt colinTolSqrd) * 180.0 / Math.PI then
+                if degrees <> Math.Asin colinTolerance * 180.0 / Math.PI then
                     let s = min 0.1 (Math.Sin(degrees * Math.PI / 180.0))
-                    colinTolSqrd <- s * s
+                    colinTolerance <- s
                     horzAngleTol <- s / 100.0
             else
                 invalidArg "AngleTolerance" $"Angle tolerance must be between 0.0 and asin(0.1) degrees (about 5.739). Got {degrees}."
