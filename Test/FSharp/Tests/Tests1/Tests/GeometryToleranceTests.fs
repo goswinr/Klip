@@ -77,6 +77,20 @@ type GeometryToleranceTests () =
             assertContainmentWithin tolerance PointInPolygonResult.IsOn 1. 49. triangle
 
     [<TestMethod>]
+    member _.AngularCleanupPreservesThinTrianglesWhoseHeightExceedsDistanceTolerance () =
+        for tolerance in [0.; 1e-5] do
+            for preserve in [false; true] do
+                for polygon in [path [|0.;0.; 1e6;1e6; 500000.;500001.|]
+                                path [|500000.;500001.; 1e6;1e6; 0.;0.|]] do
+                    let c = Clipper64<unit>()
+                    c.Tolerance <- tolerance
+                    c.PreserveColinear <- preserve
+                    c.AddSubject(paths [polygon])
+                    let result, _ = c.Execute(ClipType.Union, FillRule.NonZero)
+                    Assert.AreEqual(1, result.Count, "a small turn angle alone must not erase a real triangle")
+                    Assert.AreEqual(500000., totalAbsArea result, 1e-4)
+
+    [<TestMethod>]
     member _.ShortSegmentCrossingLongDiagonalIsAProperIntersectionInEitherDirection () =
         let diagonal = [0.,0.,1e6,1e6; 1e6,1e6,0.,0.]
         let crossing = [5e5,5e5-1.,5e5,5e5+1.; 5e5,5e5+1.,5e5,5e5-1.]

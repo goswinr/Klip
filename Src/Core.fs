@@ -441,6 +441,19 @@ module internal Geo =
         else
             0
 
+    /// Absolute distance to the infinite line, without squaring coordinate magnitudes.
+    /// Coincident line endpoints describe a zero-width spike for cleanup purposes.
+    let pointWithinLineDistance (tolerance: float) (ptX: float, ptY: float, ax: float, ay: float, bx: float, by: float) : bool =
+        if crossProductSign (ax, ay, bx, by, ptX, ptY) = 0 then true
+        elif tolerance = 0.0 then false
+        else
+            let dx = bx - ax
+            let dy = by - ay
+            let scale = max (abs dx) (abs dy)
+            let ux = dx / scale
+            let uy = dy / scale
+            abs ((ptX - ax) * uy - (ptY - ay) * ux) <= tolerance * sqrt (ux * ux + uy * uy)
+
     /// Boundary proximity is an absolute distance, never an angle from an endpoint.
     /// Bound the segment in both axes (including endpoint coincidence), then check
     /// perpendicular distance using a scaled direction to avoid squaring edge lengths.

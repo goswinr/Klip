@@ -2017,6 +2017,7 @@ type Clipper64<'Z>() =
                     && (xyEqual(op.x, op.y, op.prev.x, op.prev.y)
                         || xyEqual(op.x, op.y, op.next.x, op.next.y)
                         || (Geo.isColinear (colinTolSqrd, op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y)
+                            && Geo.pointWithinLineDistance coordEqTol (op.x, op.y, op.prev.x, op.prev.y, op.next.x, op.next.y)
                             && (not preserveColinear
                                 || Geo.dotProductSign (op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y) < 0))
                         ) ) then

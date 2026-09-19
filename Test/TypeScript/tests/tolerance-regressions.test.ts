@@ -10,6 +10,11 @@ import { pointInOpPolygon } from '../_js/Src/EngineUtil.js';
 import * as Engine from '../_js/Src/Engine.js';
 
 describe('Float topology and tolerance defaults', () => {
+  test('angular cleanup preserves a large thin triangle beyond the distance tolerance', () => {
+    const result = Klip.unionSelf([makePath([0, 0, 1e6, 1e6, 500000, 500001])]);
+    expect(result).toHaveLength(1);
+    expect(areaPaths(result)).toBe(500000);
+  });
   test.each([1, 0.01])('default union preserves a triangle with side %s', side => {
     const result = Klip.unionSelf([makePath([0, 0, side, 0, 0, side])]);
     expect(result).toHaveLength(1);
