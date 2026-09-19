@@ -441,6 +441,69 @@ module internal Geo =
     let inline isNotEqualWithin (tol: float) (a: float) (b: float) : bool =
         abs (a - b) > tol
 
+    /// Canonical representatives for closed near-duplicate chains. Keep the original
+    /// winding and vertex payloads, but choose representatives in the lexicographically
+    /// least cyclic traversal across both directions. Return None on the common path
+    /// without adjacent near duplicates, avoiding a second vertex-index allocation.
+    let closedPathRepresentatives tolerance (path: Path64<'Z>) =
+        let count = path.PointCount
+        let close i j =
+            isEqualWithin tolerance (path.GetX i) (path.GetX j) &&
+            isEqualWithin tolerance (path.GetY i) (path.GetY j)
+        let mutable hasDuplicates = false
+        let mutable i = 0
+        while i < count && not hasDuplicates do
+            hasDuplicates <- close i ((i+1)%count)
+            i <- i + 1
+        if not hasDuplicates then None
+        else
+            // An explicit closing point is the same vertex, not another candidate.
+            let mutable n = count
+            while n > 1 && path.GetX (n-1) = path.GetX 0 && path.GetY (n-1) = path.GetY 0 do
+                n <- n - 1
+            let index direction offset =
+                let wrapped = offset % n
+                if direction = 1 then wrapped else (n - wrapped) % n
+            let comparePoint a b =
+                let x = compare (path.GetX a) (path.GetX b)
+                if x <> 0 then x else compare (path.GetY a) (path.GetY b)
+            // Booth's minimum-rotation search, linear even for repeated vertices.
+            let leastRotation direction =
+                let mutable a, b, offset = 0, 1, 0
+                while a < n && b < n && offset < n do
+                    let order = comparePoint (index direction (a+offset)) (index direction (b+offset))
+                    if order = 0 then offset <- offset + 1
+                    else
+                        if order > 0 then
+                            a <- a + offset + 1
+                            if a <= b then a <- b + 1
+                        else
+                            b <- b + offset + 1
+                            if b <= a then b <- a + 1
+                        offset <- 0
+                min a b
+            let forward = leastRotation 1
+            let backward = leastRotation -1
+            let mutable order, offset = 0, 0
+            while order = 0 && offset < n do
+                order <- comparePoint (index 1 (forward+offset)) (index -1 (backward+offset))
+                offset <- offset + 1
+            let direction, start = if order <= 0 then 1, forward else -1, backward
+            let kept = ResizeArray<int>()
+            kept.Add(index direction start)
+            for offset = 1 to n-1 do
+                let candidate = index direction (start+offset)
+                if not (close kept[kept.Count-1] candidate) then kept.Add candidate
+            if kept.Count > 1 && close kept[0] kept[kept.Count-1] then kept.RemoveAt(kept.Count-1)
+            let result = kept.ToArray()
+            if direction = -1 then
+                for i = 1 to (result.Length-1)/2 do
+                    let opposite = result.Length-i
+                    let value = result[i]
+                    result[i] <- result[opposite]
+                    result[opposite] <- value
+            Some result
+
 
     /// Dimensionless tolerance for treating a cross product as zero, i.e. three points as
     /// colinear. Coordinates are no longer snapped to the integer grid, so an

@@ -3,7 +3,7 @@ import { Klip } from './klip-api';
 import { areaPaths, makePath, PointInPolygonResult } from './adapter';
 // Exercise the actual Fable predicates, not the independent test adapter's PIP.
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
-import { Geo_pointInPolygon, Geo_segsIntersectNotInclusive, Geo_isColinear, Geo_dotProductSign, Geo_crossProductSign, Robust_intersectionParameter } from '../_js/Src/Core.js';
+import { Geo_pointInPolygon, Geo_segsIntersectNotInclusive, Geo_isColinear, Geo_dotProductSign, Geo_crossProductSign, Robust_intersectionParameter, Geo_closedPathRepresentatives } from '../_js/Src/Core.js';
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
 import { pointInOpPolygon, areaTriangle, areaOutPt, distFromLineGreaterThanTolerance, isNearOrAboveTopY } from '../_js/Src/EngineUtil.js';
 // @ts-ignore -- generated Fable module
@@ -12,6 +12,18 @@ import { Path64$1__get_SignedArea } from '../_js/Src/Core.js';
 import * as Engine from '../_js/Src/Engine.js';
 
 describe('Float topology and tolerance defaults', () => {
+  test('closed near-equal chains select the same vertices for every cyclic start and winding', () => {
+    const vertices = [[0,0], [0.75,0.75], [1.5,0.75], [2.25,0], [10,0], [10,10], [0,10]];
+    let expected: number[][] | undefined;
+    for (const winding of [vertices, [...vertices].reverse()]) {
+      for (let start = 0; start < vertices.length; start++) {
+        const rotated = [...winding.slice(start), ...winding.slice(0, start)];
+        const retained = Geo_closedPathRepresentatives(1, makePath(rotated.flat())).map((i: number) => rotated[i]).sort();
+        expected ??= retained;
+        expect(retained).toEqual(expected);
+      }
+    }
+  });
   test('orientation and area recover a unit determinant lost to multiplication rounding', () => {
     const p = [0, 0, 1e8, 1e8-1, 2e8+1, 2e8-1];
     expect(Geo_crossProductSign(...p)).toBe(1);

@@ -188,6 +188,12 @@ discards near-duplicate vertices. Changing that distance afterwards raises `Inva
 Call `ClearAll()`, set the new tolerance, and re-add the original paths to rebuild them.
 Repeated executions with the same inputs remain supported.
 
+Near equality is not transitive. For closed input paths with adjacent near duplicates,
+the engine chooses representatives in the lexicographically smallest cyclic traversal
+across both directions, then restores the input winding. Rotating the start vertex or
+reversing the path therefore keeps the same coordinates; each retained vertex keeps its
+own Z value. Open paths retain their supplied direction and use sequential deduplication.
+
 Reassigning either reported tolerance (`c.Tolerance <- c.Tolerance` or
 `c.AngleTolerance <- c.AngleTolerance`) preserves expert overrides. Assigning a different
 value updates the associated thresholds together. The angle range is `0 .. asin(0.1)`

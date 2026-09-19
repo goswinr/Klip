@@ -89,6 +89,43 @@ type ToleranceUnitTests () =
         Assert.IsTrue(c.AngleTolerance > 0.)
 
     [<TestMethod>]
+    member _.ClosedNearDuplicateChainsHaveTheSameRepresentativesForEveryStartAndWinding () =
+        for vertices in [[|0.,0.; 0.9,0.9; 1.8,0.; 10.,0.; 10.,10.; 0.,10.|]
+                         [|0.,0.; 0.75,0.75; 1.5,0.75; 2.25,0.; 10.,0.; 10.,10.; 0.,10.|]] do
+            let mutable baseline = None
+            for winding in [vertices; Array.rev vertices] do
+                for start = 0 to vertices.Length - 1 do
+                    let polygon = path [|for i = 0 to vertices.Length - 1 do
+                                             let x,y = winding[(start+i)%vertices.Length]
+                                             yield x; yield y|]
+                    let c = Clipper64<unit>()
+                    c.Tolerance <- 1.
+                    c.AngleTolerance <- 0.
+                    c.AddSubject(paths [polygon])
+                    let result, _ = c.Execute(ClipType.Union, FillRule.NonZero)
+                    Assert.AreEqual(1, result.Count)
+                    let points = [|for i = 0 to result[0].PointCount-1 do yield result[0].GetX i, result[0].GetY i|] |> Array.sort
+                    match baseline with
+                    | None -> baseline <- Some points
+                    | Some expected -> CollectionAssert.AreEqual(expected, points, "near equality is nontransitive; representative selection must have a canonical traversal")
+
+    [<TestMethod>]
+    member _.CanonicalDeduplicationKeepsVertexMetadataAndClosedWinding () =
+        let p = Path64<string>(ResizeArray [0.;0.; 0.9;0.9; 1.8;0.; 10.;0.; 10.;10.; 0.;10.],
+                               Some (ResizeArray ["origin";"near";"edge";"right";"top";"left"]))
+        for polygon in [p; Geo.reversePath p] do
+            let c = Clipper64<string>()
+            c.Tolerance <- 1.
+            c.AngleTolerance <- 0.
+            c.AddSubject(ResizeArray [polygon])
+            let fill = if polygon.SignedArea > 0. then FillRule.Positive else FillRule.Negative
+            let result, _ = c.Execute(ClipType.Union, fill)
+            Assert.AreEqual(1, result.Count, "canonical traversal must restore the input winding")
+            for i = 0 to result[0].PointCount-1 do
+                let original = [0..p.PointCount-1] |> List.find (fun j -> p.GetX j = result[0].GetX i && p.GetY j = result[0].GetY i)
+                Assert.AreEqual(p.Zs.Value[original], result[0].Zs.Value[i], "retained XY and Z come from the same vertex")
+
+    [<TestMethod>]
     member _.AngleAndSineToleranceRangesRoundTripIncludingExactMode () =
         let c = Clipper64<unit>()
         c.AngleTolerance <- 0.

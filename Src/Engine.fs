@@ -2165,12 +2165,16 @@ type Clipper64<'Z>() =
                 hasZValues <- true
             let xys = path.XYs
             let zso = path.Zs
+            let representatives = if isOpen then None else Geo.closedPathRepresentatives coordEqTol path
+            let pointCount = match representatives with None -> path.PointCount | Some indices -> indices.Length
+            let pointIndex i = match representatives with None -> i | Some indices -> indices[i]
             let mutable prevV: Vertex<'Z> = null'()
 
             // do v0, the first vertex, outside the loop to initialize prevV
-            let x = Rarr.getIdx 0 xys
-            let y = Rarr.getIdx 1 xys
-            let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx 0 zs
+            let first = pointIndex 0
+            let x = Rarr.getIdx (2*first) xys
+            let y = Rarr.getIdx (2*first+1) xys
+            let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx first zs
             // vertexList holds only each path's head vertex; the rest of the chain
             // stays reachable through the next/prev links, saving an array slot per vertex.
             let v0 : Vertex<'Z> = { x = x; y = y; z = z; next = null'(); prev = null'(); flags = VertexFlags.None }
@@ -2178,17 +2182,17 @@ type Clipper64<'Z>() =
             prevV <- v0
 
             // do all others
-            let len = Rarr.len xys
-            let mutable j = 2
-            while j < len do
-                let x = Rarr.getIdx j xys
-                let y = Rarr.getIdx (j + 1) xys
-                let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx (j / 2) zs
+            let mutable j = 1
+            while j < pointCount do
+                let original = pointIndex j
+                let x = Rarr.getIdx (2*original) xys
+                let y = Rarr.getIdx (2*original+1) xys
+                let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx original zs
                 if xyNotEqual(prevV.x, prevV.y, x, y) then  // skip duplicates when building vertex list
                     let currV = { x = x; y = y; z = z; next = null'(); prev = prevV; flags = VertexFlags.None }
                     prevV.next <- currV
                     prevV <- currV
-                j <- j + 2
+                j <- j + 1
 
 
             if isNull' prevV || isNull' prevV.prev then
