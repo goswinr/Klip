@@ -278,18 +278,18 @@ type Path64<'Z> ( xys:ResizeArray<float>, zs:option<ResizeArray<'Z>>) =
         if cnt < 3 then
             0.0
         else
-            let coords = p.XYs
-            let mutable total = 0.0
-            let mutable prevCoord = (cnt - 1) * 2
-            let mutable prevX = Rarr.getIdx prevCoord coords
-            let mutable prevY = Rarr.getIdx (prevCoord + 1) coords
-            for i = 0 to cnt - 1 do
-                let coord = i * 2
-                let x = Rarr.getIdx coord coords
-                let y = Rarr.getIdx (coord + 1) coords
-                total <- total + (prevY + y) * (prevX - x)
-                prevX <- x
-                prevY <- y
+            // Translate to a local origin before multiplying. Absolute-coordinate
+            // shoelace terms can erase a small area far from the global origin.
+            let ox, oy = p.GetX 0, p.GetY 0
+            let mutable total = 0.
+            let mutable correction = 0.
+            for i = 1 to cnt - 2 do
+                let ax, ay = p.GetX i - ox, p.GetY i - oy
+                let bx, by = p.GetX (i+1) - ox, p.GetY (i+1) - oy
+                let term = (ax * by - ay * bx) - correction
+                let sum = total + term
+                correction <- (sum - total) - term
+                total <- sum
             total * 0.5
 
     /// Computes the area of the path.

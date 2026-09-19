@@ -5,11 +5,22 @@ import { areaPaths, makePath, PointInPolygonResult } from './adapter';
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
 import { Geo_pointInPolygon, Geo_segsIntersectNotInclusive, Geo_isColinear, Geo_dotProductSign } from '../_js/Src/Core.js';
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
-import { pointInOpPolygon } from '../_js/Src/EngineUtil.js';
+import { pointInOpPolygon, areaTriangle, areaOutPt } from '../_js/Src/EngineUtil.js';
+// @ts-ignore -- generated Fable module
+import { Path64$1__get_SignedArea } from '../_js/Src/Core.js';
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
 import * as Engine from '../_js/Src/Engine.js';
 
 describe('Float topology and tolerance defaults', () => {
+  test('translated thin triangles retain their signed area in paths and rings', () => {
+    const b = 1e12;
+    const p = makePath([b, b, b+1000, b+1000, b+500, b+500+0.0001]);
+    expect(Path64$1__get_SignedArea(p)).toBe(0.06103515625);
+    expect(areaTriangle(...p.xys)).toBe(0.1220703125);
+    const ring: any[] = Array.from({ length: 3 }, (_, i) => ({ x: p.xys[2*i], y: p.xys[2*i+1] }));
+    ring.forEach((p, i) => { p.next = ring[(i+1)%3]; p.prev = ring[(i+2)%3]; });
+    expect(areaOutPt(ring[0])).toBe(0.1220703125);
+  });
   test.each([1e-200, 1e-90, 1, 1e90, 1e200])('angle predicates retain their meaning at scale %s', s => {
     expect(Geo_isColinear(1e-6, 0, 0, s, 0, s, s)).toBe(false);
     expect(Geo_isColinear(1e-6, 0, 0, s, s, 0, 0)).toBe(true);

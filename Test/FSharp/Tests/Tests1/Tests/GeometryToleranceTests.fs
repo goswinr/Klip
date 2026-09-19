@@ -46,6 +46,16 @@ type GeometryToleranceTests () =
             Assert.AreEqual(1, Geo.dotProductSign(0.,0., scale,scale, 2.*scale,2.*scale))
 
     [<TestMethod>]
+    member _.SignedAreasRetainThinGeometryAfterLargeTranslations () =
+        let b = 1e12
+        let triangle = path [|b;b; b+1000.;b+1000.; b+500.;b+500.+0.0001|]
+        let expected = 1000. * ((b+500.+0.0001) - (b+500.)) / 2.
+        for p, sign in [triangle,1.; Geo.reversePath triangle,-1.] do
+            Assert.AreEqual(sign*expected, p.SignedArea, "path area")
+            Assert.AreEqual(sign*expected*2., Eng.areaOutPt (asRing p), "ring double area")
+            Assert.AreEqual(sign*expected*2., Eng.areaTriangle(p.GetX 0,p.GetY 0,p.GetX 1,p.GetY 1,p.GetX 2,p.GetY 2), "triangle double area")
+
+    [<TestMethod>]
     member _.ClosedRingValidationRejectsTooFewVerticesAndAppliesTheTriangleWindow () =
         let check tolerance coords expected =
             Assert.AreEqual(expected, Eng.isValidClosedPath(tolerance, asRing (path coords)))

@@ -256,21 +256,21 @@ module internal Eng =
 
     /// Signed double-area of a closed OutPt<'Z> ring.
     let areaOutPt<'Z> (op: OutPt<'Z>) : float =
-        let mutable area = 0.0
-        let mutable op2 = op
-        let mutable loopOn = true
-        while loopOn do
-            let prev = op2.prev
-            area <- area + (prev.y + op2.y) * (prev.x - op2.x)
-            op2 <- op2.next
-            if op2 === op then
-                loopOn <- false
+        let mutable area = 0.
+        let mutable correction = 0.
+        let mutable current = op.next
+        while current.next =!= op do
+            let ax, ay = current.x - op.x, current.y - op.y
+            let bx, by = current.next.x - op.x, current.next.y - op.y
+            let term = (ax * by - ay * bx) - correction
+            let sum = area + term
+            correction <- (sum - area) - term
+            area <- sum
+            current <- current.next
         area
 
-    let inline areaTriangle (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : float =
-        (pt3Y + pt1Y) * (pt3X - pt1X) +
-        (pt1Y + pt2Y) * (pt1X - pt2X) +
-        (pt2Y + pt3Y) * (pt2X - pt3X)
+    let areaTriangle (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : float =
+        (pt2X - pt1X) * (pt3Y - pt1Y) - (pt2Y - pt1Y) * (pt3X - pt1X)
 
     /// Fast bounding-box overlap test used before calling segsIntersect.
     /// Early-exits on the first separating axis found instead of computing all
