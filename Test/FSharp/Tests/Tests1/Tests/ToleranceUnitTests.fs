@@ -63,6 +63,24 @@ type ToleranceUnitTests () =
         Assert.AreEqual(before, after, "assigning the reported default must not change hidden culling or join thresholds")
 
     [<TestMethod>]
+    member _.CoordinateToleranceCannotChangeAfterInputDeduplicationUntilClearAll () =
+        for add in [ (fun (c: Clipper64<unit>) p -> c.AddSubject p)
+                     (fun c p -> c.AddClip p)
+                     (fun c p -> c.AddOpenSubject p) ] do
+            let c = Clipper64<unit>()
+            add c (paths [path [|0.;0.; 1e-6;0.; 0.;1e-6|]])
+            let before = c.Tolerance, c.MergeVertexTolerance, c.SplitAreaTolerance
+            Assert.ThrowsException<InvalidOperationException>(Action(fun () -> c.Tolerance <- 1e-9)) |> ignore
+            Assert.ThrowsException<InvalidOperationException>(Action(fun () -> c.CoordEqTolerance <- 1e-9)) |> ignore
+            Assert.AreEqual(before, (c.Tolerance, c.MergeVertexTolerance, c.SplitAreaTolerance), "failed changes must be atomic")
+            c.Tolerance <- c.Tolerance // harmless reassignment is allowed
+            c.ClearAll()
+            c.Tolerance <- 1e-9
+            c.AddSubject(paths [path [|0.;0.; 1e-6;0.; 0.;1e-6|]])
+            let result, _ = c.Execute(ClipType.Union, FillRule.NonZero)
+            Assert.AreEqual(1, result.Count, "clearing and re-adding uses the new tolerance")
+
+    [<TestMethod>]
     member _.DefaultUnionPreservesUnitAndSubunitTriangles () =
         // Integer-grid culls used to discard these ordinary float polygons.
         for side in [1.0; 0.01] do

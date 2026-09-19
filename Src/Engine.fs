@@ -97,6 +97,10 @@ type Clipper64<'Z>() =
     let mutable smallTriangleTol = coordEqTol // per-instance; exposed as SmallTriangleTolerance
     let mutable splitAreaTol = coordEqTol * coordEqTol     // per-instance (area units); exposed as SplitAreaTolerance
 
+    let checkCoordinateToleranceChange value =
+        if value <> coordEqTol && vertexList.Count > 0 then
+            invalidOp "Set coordinate tolerance before adding paths. Call ClearAll and re-add the original paths to change it: input deduplication cannot restore discarded vertices."
+
     // closed paths should always return a Positive orientation
     // except when ReverseSolution == true
     let mutable reverseSolution = false
@@ -2358,6 +2362,7 @@ type Clipper64<'Z>() =
         with get() : float = coordEqTol
         and set(v: float) : unit =
             if v >= 0.0 && v <= 1e12 then
+                checkCoordinateToleranceChange v
                 coordEqTol <- v
             else
                 invalidArg "CoordEqTolerance" $"Coord equality tolerance must be between 0.0 and 1e12. Got {v}."
@@ -2572,11 +2577,14 @@ type Clipper64<'Z>() =
     /// The getter returns the current point-coincidence distance. The default is 1e-5,
     /// with all four distance thresholds initialized to it and the split-area threshold to its square.
     /// Valid range 0.0 .. 1e12; 0.0 makes the comparisons exact. Per-instance setting.
+    /// Set before adding paths. Changing the coordinate tolerance afterwards throws
+    /// InvalidOperationException; call ClearAll and re-add the original paths first.
     /// </remarks>
     member _.Tolerance
         with get() : float = coordEqTol
         and set(tolerance: float) : unit =
             if tolerance >= 0.0 && tolerance <= 1e12 then
+                checkCoordinateToleranceChange tolerance
                 coordEqTol <- tolerance
                 mergeVertexToleranceSqrd <- tolerance * tolerance
                 nearTopYToleranceCap <- tolerance

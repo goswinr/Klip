@@ -576,18 +576,14 @@ type BooleanTests () =
         // CoordEqTolerance (1e-9) fuses genuinely-distinct vertices and the polygon collapses
         // to zero output. CoordEqTolerance must track coordinate magnitude (~maxCoord * 1e-6);
         // tightening it to 1e-10 keeps the vertices distinct so the union resolves correctly.
-        // CoordEqTolerance is process-wide, so save and restore it for test isolation.
+        // Tolerances belong to this instance and must be set before ingestion.
         let c = Clipper64<unit>()
-        let prevCoord = c.CoordEqTolerance
-        try
-            c.CoordEqTolerance <- 1e-10
-            c.AddSubject(subj)
-            c.AddClip(clip)
-            let solution,_ = c.Execute(ClipType.Union, FillRule.NonZero)
-            Assert.AreEqual(1, solution.Count, "expected a single merged path")
-            Assert.AreEqual(8, solution.[0].PointCount, "expected 8 points in the merged path")
-        finally
-            c.CoordEqTolerance <- prevCoord
+        c.CoordEqTolerance <- 1e-10
+        c.AddSubject(subj)
+        c.AddClip(clip)
+        let solution,_ = c.Execute(ClipType.Union, FillRule.NonZero)
+        Assert.AreEqual(1, solution.Count, "expected a single merged path")
+        Assert.AreEqual(8, solution.[0].PointCount, "expected 8 points in the merged path")
 
     [<TestMethod>]
     member _.UnionTwoTouchingPolygonsRotatedGivesEightPointPath () =

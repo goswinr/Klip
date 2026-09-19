@@ -183,6 +183,11 @@ as-is, not as a multiplier of the defaults. A new instance is equivalent to sett
 `c.Tolerance <- 1e-5`: all four distance thresholds are `1e-5`, and the split-area threshold is `1e-10`.
 Unit and subunit triangles no longer need an explicit assignment to bypass integer-grid culling defaults.
 
+Set `Tolerance` (or the expert `CoordEqTolerance`) **before adding paths**: input ingestion
+discards near-duplicate vertices. Changing that distance afterwards raises `InvalidOperationException`.
+Call `ClearAll()`, set the new tolerance, and re-add the original paths to rebuild them.
+Repeated executions with the same inputs remain supported.
+
 `AngleTolerance` controls colinear cleanup and adjacent-edge joins (and derives the tighter horizontal
 angle threshold). It does not flatten orientation signs used for edge ordering or proper segment
 crossings. Point-on-boundary checks use the absolute coordinate tolerance, followed by exact
