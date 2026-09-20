@@ -2036,9 +2036,12 @@ type Clipper64<'Z>(?tolerance: float, ?angleTolerance: float) =
                     && (xyEqual(op.x, op.y, op.prev.x, op.prev.y)
                         || xyEqual(op.x, op.y, op.next.x, op.next.y)
                         || (Geo.isColinear (colinTolerance, op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y)
-                            && Geo.pointWithinLineDistance coordEqTol (op.x, op.y, op.prev.x, op.prev.y, op.next.x, op.next.y)
+                            // With preserveColinear (the default) straight continuations are kept, so
+                            // test the cheap U-turn sign first and pay for the perpendicular-distance
+                            // bound only on the rare spike candidates.
                             && (not preserveColinear
-                                || Geo.dotProductSign (op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y) < 0))
+                                || Geo.dotProductSign (op.prev.x, op.prev.y, op.x, op.y, op.next.x, op.next.y) < 0)
+                            && Geo.pointWithinLineDistance coordEqTol (op.x, op.y, op.prev.x, op.prev.y, op.next.x, op.next.y))
                         ) ) then
                                 if op === outrec.pts then
                                     outrec.pts <- op.prev
@@ -2174,7 +2177,9 @@ type Clipper64<'Z>(?tolerance: float, ?angleTolerance: float) =
 
 
 
-    let addPathsToVertexList (paths: Paths64<'Z>, pathType: PathType, isOpen: bool) : unit =
+    /// `nearDuplicateFlags[i]` says whether closed path `i` has adjacent near-duplicate
+    /// vertices (computed by the validation pass in `AddPaths`, see `Geo.scanClosedPath`).
+    let addPathsToVertexList (paths: Paths64<'Z>, pathType: PathType, isOpen: bool, nearDuplicateFlags: bool[]) : unit =
         // Ingestion permanently deduplicates the stored vertex chains using coordEqTol.
         // This is why coordinate tolerance is constructor-only. Angular classification
         // happens later on execution state and does not discard these stored inputs.
@@ -2189,34 +2194,60 @@ type Clipper64<'Z>(?tolerance: float, ?angleTolerance: float) =
                 hasZValues <- true
             let xys = path.XYs
             let zso = path.Zs
-            let representatives = if isOpen then None else Geo.closedPathRepresentatives coordEqTol path
-            let pointCount = match representatives with None -> path.PointCount | Some indices -> indices.Length
-            let pointIndex i = match representatives with None -> i | Some indices -> indices[i]
+            // Closed paths with adjacent near-duplicate vertices (within coordEqTol) get a
+            // canonical, start- and winding-invariant choice of representatives. The
+            // overwhelmingly common clean path (flag already computed by the validation
+            // pass) takes the direct loop below with no per-vertex indirection.
+            let representatives =
+                if isOpen || not nearDuplicateFlags[i] then None
+                else Geo.closedPathRepresentatives coordEqTol path
             let mutable prevV: Vertex<'Z> = null'()
 
-            // do v0, the first vertex, outside the loop to initialize prevV
-            let first = pointIndex 0
-            let x = Rarr.getIdx (2*first) xys
-            let y = Rarr.getIdx (2*first+1) xys
-            let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx first zs
             // vertexList holds only each path's head vertex; the rest of the chain
             // stays reachable through the next/prev links, saving an array slot per vertex.
-            let v0 : Vertex<'Z> = { x = x; y = y; z = z; next = null'(); prev = null'(); flags = VertexFlags.None }
+            let v0 : Vertex<'Z> =
+                match representatives with
+                | None ->
+                    // do v0, the first vertex, outside the loop to initialize prevV
+                    let x = Rarr.getIdx 0 xys
+                    let y = Rarr.getIdx 1 xys
+                    let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx 0 zs
+                    let v0 : Vertex<'Z> = { x = x; y = y; z = z; next = null'(); prev = null'(); flags = VertexFlags.None }
+                    prevV <- v0
+                    // do all others
+                    let len = Rarr.len xys
+                    let mutable j = 2
+                    while j < len do
+                        let x = Rarr.getIdx j xys
+                        let y = Rarr.getIdx (j + 1) xys
+                        let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx (j / 2) zs
+                        if xyNotEqual(prevV.x, prevV.y, x, y) then  // skip duplicates when building vertex list
+                            let currV = { x = x; y = y; z = z; next = null'(); prev = prevV; flags = VertexFlags.None }
+                            prevV.next <- currV
+                            prevV <- currV
+                        j <- j + 2
+                    v0
+                | Some indices ->
+                    let first = indices[0]
+                    let x = Rarr.getIdx (2*first) xys
+                    let y = Rarr.getIdx (2*first+1) xys
+                    let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx first zs
+                    let v0 : Vertex<'Z> = { x = x; y = y; z = z; next = null'(); prev = null'(); flags = VertexFlags.None }
+                    prevV <- v0
+                    let pointCount = indices.Length
+                    let mutable j = 1
+                    while j < pointCount do
+                        let original = indices[j]
+                        let x = Rarr.getIdx (2*original) xys
+                        let y = Rarr.getIdx (2*original+1) xys
+                        let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx original zs
+                        if xyNotEqual(prevV.x, prevV.y, x, y) then  // skip duplicates when building vertex list
+                            let currV = { x = x; y = y; z = z; next = null'(); prev = prevV; flags = VertexFlags.None }
+                            prevV.next <- currV
+                            prevV <- currV
+                        j <- j + 1
+                    v0
             vertexList.Add(v0)
-            prevV <- v0
-
-            // do all others
-            let mutable j = 1
-            while j < pointCount do
-                let original = pointIndex j
-                let x = Rarr.getIdx (2*original) xys
-                let y = Rarr.getIdx (2*original+1) xys
-                let z = match zso with | None -> null'() | Some zs -> Rarr.getIdx original zs
-                if xyNotEqual(prevV.x, prevV.y, x, y) then  // skip duplicates when building vertex list
-                    let currV = { x = x; y = y; z = z; next = null'(); prev = prevV; flags = VertexFlags.None }
-                    prevV.next <- currV
-                    prevV <- currV
-                j <- j + 1
 
 
             if isNull' prevV || isNull' prevV.prev then
@@ -2654,17 +2685,33 @@ type Clipper64<'Z>(?tolerance: float, ?angleTolerance: float) =
             invalidArg "isOpen" "Clip paths cannot be open. Use AddOpenSubject for open subject paths."
         // Validate the complete batch before changing flags, vertices, or minima.
         // NaN breaks ordering; infinities poison intersection and distance arithmetic.
-        for i = 0 to paths.Count - 1 do
-            let path = paths[i]
+        // One indexed pass over each flat buffer (a `for .. in` over the ResizeArray would
+        // compile to an enumerator under Fable); for closed paths the same pass also records
+        // whether the path has adjacent near-duplicate vertices, so ingestion below does not
+        // scan the input a second time.
+        let nearDuplicateFlags : bool[] = Array.zeroCreate (Rarr.len paths)
+        for i = 0 to paths |> Rarr.lastIdx do
+            let path = Rarr.getIdx i paths
             if isNull' path || path.IsEmpty then
                 invalidArg "paths" $"The path at index {i} must be non-null and contain points."
-            for coordinate in path.XYs do
-                if Double.IsNaN coordinate || Double.IsInfinity coordinate then
-                    invalidArg "paths" $"Coordinates must be finite (path at index {i})."
+            if isOpen then
+                let xys = path.XYs
+                let len = Rarr.len xys
+                let mutable k = 0
+                while k < len do
+                    let coordinate = Rarr.getIdx k xys
+                    if coordinate - coordinate <> 0. then // 0 for every finite value, NaN for NaN and ±infinity
+                        invalidArg "paths" $"Coordinates must be finite (path at index {i})."
+                    k <- k + 1
+            else
+                match Geo.scanClosedPath coordEqTol path with
+                | -1 -> invalidArg "paths" $"Coordinates must be finite (path at index {i})."
+                | 1 -> nearDuplicateFlags[i] <- true
+                | _ -> ()
         if isOpen then
             hasOpenPaths <- true
         isSortedMinimaList <- false
-        addPathsToVertexList(paths, pathType, isOpen)
+        addPathsToVertexList(paths, pathType, isOpen, nearDuplicateFlags)
 
 
     member this.AddPath(path: Path64<'Z>, pathType: PathType, [<OPT; DEF(false)>] isOpen: bool) : unit =

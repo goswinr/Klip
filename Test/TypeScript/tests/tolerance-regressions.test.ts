@@ -3,7 +3,7 @@ import { Klip } from './klip-api';
 import { areaPaths, makePath, PointInPolygonResult } from './adapter';
 // Exercise the actual Fable predicates, not the independent test adapter's PIP.
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
-import { Geo_pointInPolygon, Geo_segsIntersectNotInclusive, Geo_isColinear, Geo_dotProductSign } from '../_js/Src/Core.js';
+import { Geo_pointInPolygon, Geo_segsIntersectNotInclusive, Geo_isColinear, Geo_dotProductSignNonInline as Geo_dotProductSign } from '../_js/Src/Core.js';
 // @ts-ignore -- Fable JavaScript has no accompanying .d.ts
 import { pointInOpPolygon, areaTriangle, areaOutPt } from '../_js/Src/EngineUtil.js';
 // @ts-ignore -- generated Fable module

@@ -248,7 +248,7 @@ module internal Eng =
     let inline ptsReallyClose (closeTol: float, pt1X: float, pt1Y: float, pt2X: float, pt2Y: float) : bool =
         Math.Abs(pt1X - pt2X) < closeTol && Math.Abs(pt1Y - pt2Y) < closeTol
 
-    let isVerySmallTriangle (closeTol: float, op: OutPt<'Z>) : bool =
+    let inline isVerySmallTriangle (closeTol: float, op: OutPt<'Z>) : bool =
         op.next.next === op.prev &&
         (ptsReallyClose (closeTol, op.prev.x, op.prev.y, op.next.x, op.next.y) ||
          ptsReallyClose (closeTol, op.x, op.y, op.next.x, op.next.y) ||
@@ -467,7 +467,7 @@ module internal Eng =
         op.next.prev <- op.prev
         result
 
-    let isValidClosedPath (smallTriangleTol: float, op: OutPt<'Z>) : bool =
+    let inline isValidClosedPath (smallTriangleTol: float, op: OutPt<'Z>) : bool =
         isNotNull op && op.next =!= op &&
         op.next =!= op.prev && not (isVerySmallTriangle (smallTriangleTol, op))
 

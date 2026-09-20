@@ -357,22 +357,65 @@ module internal Geo =
     let inline isNotEqualWithin (tol: float) (a: float) (b: float) : bool =
         abs (a - b) > tol
 
+    /// True when two cyclically adjacent points of a closed path are within `tolerance` on
+    /// both axes. Trailing points that exactly repeat the first point (an explicit closing
+    /// point, as Rhino and many exporters write it) are the same vertex, not a duplicate
+    /// pair: they are ignored here exactly as `closedPathRepresentatives` ignores them, so
+    /// a merely closed polygon does not trigger the canonical-representative machinery.
+    /// A plain indexed scan over the flat buffer (no modulo, no closure, no per-point method
+    /// calls): this gate runs on every closed input path at ingestion, so it must stay as
+    /// cheap as the vertex-building loop it precedes.
+    ///
+    /// The same pass also validates finiteness so ingestion needs only one traversal:
+    /// returns `-1` when any coordinate is NaN or infinite (`x - x` is 0 for every finite
+    /// value and NaN otherwise), `1` when an adjacent near-duplicate pair exists, else `0`.
+    let scanClosedPath (tolerance: float) (path: Path64<'Z>) : int =
+        let xys = path.XYs
+        let x0 = Rarr.getIdx 0 xys
+        let y0 = Rarr.getIdx 1 xys
+        if x0 - x0 <> 0. || y0 - y0 <> 0. then
+            -1
+        else
+            // `last` is the flat index of the last point that is not an exact copy of the
+            // first; the copies beyond it are finite because (x0, y0) is.
+            let mutable last = Rarr.len xys - 2
+            while last > 0 && Rarr.getIdx last xys = x0 && Rarr.getIdx (last + 1) xys = y0 do
+                last <- last - 2
+            let mutable result = 0
+            let mutable prevX = x0
+            let mutable prevY = y0
+            let mutable k = 2
+            while k <= last && result >= 0 do
+                let x = Rarr.getIdx k xys
+                let y = Rarr.getIdx (k + 1) xys
+                if x - x <> 0. || y - y <> 0. then
+                    result <- -1
+                elif result = 0 && abs (x - prevX) <= tolerance && abs (y - prevY) <= tolerance then
+                    result <- 1
+                prevX <- x
+                prevY <- y
+                k <- k + 2
+            // the wrap-around pair, last point back to first (only with 2+ distinct points)
+            if result = 0 && last >= 2 && abs (x0 - prevX) <= tolerance && abs (y0 - prevY) <= tolerance then
+                result <- 1
+            result
+
+    /// True when two cyclically adjacent points of a closed path are within `tolerance` on
+    /// both axes, ignoring trailing exact copies of the first point. See `scanClosedPath`.
+    let hasAdjacentNearDuplicates (tolerance: float) (path: Path64<'Z>) : bool =
+        scanClosedPath tolerance path = 1
+
     /// Canonical representatives for closed near-duplicate chains. Keep the original
     /// winding and vertex payloads, but choose representatives in the lexicographically
     /// least cyclic traversal across both directions. Return None on the common path
     /// without adjacent near duplicates, avoiding a second vertex-index allocation.
     let closedPathRepresentatives tolerance (path: Path64<'Z>) =
-        let count = path.PointCount
-        let close i j =
-            isEqualWithin tolerance (path.GetX i) (path.GetX j) &&
-            isEqualWithin tolerance (path.GetY i) (path.GetY j)
-        let mutable hasDuplicates = false
-        let mutable i = 0
-        while i < count && not hasDuplicates do
-            hasDuplicates <- close i ((i+1)%count)
-            i <- i + 1
-        if not hasDuplicates then None
+        if not (hasAdjacentNearDuplicates tolerance path) then None
         else
+            let count = path.PointCount
+            let close i j =
+                isEqualWithin tolerance (path.GetX i) (path.GetX j) &&
+                isEqualWithin tolerance (path.GetY i) (path.GetY j)
             // An explicit closing point is the same vertex, not another candidate.
             let mutable n = count
             while n > 1 && path.GetX (n-1) = path.GetX 0 && path.GetY (n-1) = path.GetY 0 do
@@ -444,16 +487,31 @@ module internal Geo =
     /// True when the cross product of edge vectors U=(a,c) and W=(d,b) is effectively
     /// zero relative to the edge lengths, i.e. the three points are colinear, given the
     /// colinearity sine tolerance `colinTolerance`.
-    /// Normalize each vector separately so neither fourth powers nor tiny cross-product
-    /// squares can overflow or underflow.
+    ///
+    /// Fast path: the single squared comparison `cross² <= tol² * |U|² * |W|²` (no division,
+    /// no sqrt). It is exact enough whenever nothing overflowed or underflowed, which the
+    /// range guard on `scaleSq` and on the right-hand side checks: `scaleSq < 1e280` means
+    /// both squared lengths (and hence `cross²`, bounded by Cauchy-Schwarz) are finite, and
+    /// `rhs > 1e-280` means the tolerance-scaled bound is a normal float, so a `cross²`
+    /// that underflows really is far below it. Otherwise (extreme coordinate scales, a
+    /// tiny expert tolerance, or exact mode `tol = 0`) fall back to normalizing each vector
+    /// separately so neither fourth powers nor tiny cross-product squares can overflow or
+    /// underflow. This is a hot predicate (`checkJoinLeft/Right`, output-ring cleanup), so
+    /// the fallback must stay off the common path.
     let inline crossIsZero (colinTolerance: float) (a: float) (b: float) (c: float) (d: float) : bool =
-        let uScale = max (abs a) (abs c)
-        let vScale = max (abs b) (abs d)
-        if uScale = 0. || vScale = 0. then true
+        let cross = a * b - c * d
+        let scaleSq = (a * a + c * c) * (b * b + d * d)
+        let rhs = colinTolerance * colinTolerance * scaleSq
+        if rhs > 1e-280 && scaleSq < 1e280 then
+            cross * cross <= rhs
         else
-            let ax, cy = a / uScale, c / uScale
-            let by, dx = b / vScale, d / vScale
-            abs (ax * by - cy * dx) <= colinTolerance * sqrt ((ax*ax + cy*cy) * (by*by + dx*dx))
+            let uScale = max (abs a) (abs c)
+            let vScale = max (abs b) (abs d)
+            if uScale = 0. || vScale = 0. then true
+            else
+                let ax, cy = a / uScale, c / uScale
+                let by, dx = b / vScale, d / vScale
+                abs (ax * by - cy * dx) <= colinTolerance * sqrt ((ax*ax + cy*cy) * (by*by + dx*dx))
 
 
     /// Orientation for topology, independent of the angle used for colinear cleanup.
@@ -496,13 +554,23 @@ module internal Geo =
         let d = pt3Y - pt2Y
         a * b + c * d
 
-    let dotProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
+    /// Sign of the dot product of the two edge vectors meeting at pt2.
+    /// Fast path: the sign of the raw dot product, trusted whenever its magnitude is a
+    /// normal, finite float (no product overflowed to ±infinity or NaN, and the sum did not
+    /// underflow). Otherwise normalize each vector by its largest component first so the
+    /// sign survives extreme coordinate scales. Kept `inline` and division-free on the
+    /// common path because the output-ring cleanup loop calls this per colinear vertex.
+    let inline dotProductSign (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
         let ax, ay = pt2X - pt1X, pt2Y - pt1Y
         let bx, by = pt3X - pt2X, pt3Y - pt2Y
-        let aScale, bScale = max (abs ax) (abs ay), max (abs bx) (abs by)
+        let raw = ax * bx + ay * by
+        let magnitude = abs raw
         let sum =
-            if aScale = 0. || bScale = 0. then 0.
-            else (ax / aScale) * (bx / bScale) + (ay / aScale) * (by / bScale)
+            if magnitude > 1e-280 && magnitude < 1e280 then raw
+            else
+                let aScale, bScale = max (abs ax) (abs ay), max (abs bx) (abs by)
+                if aScale = 0. || bScale = 0. then 0.
+                else (ax / aScale) * (bx / bScale) + (ay / aScale) * (by / bScale)
         // 0.0 is OK to check against, no tolerance needed here ,
         // Its only caller first checks collinearity and removes coincident vertices ([Engine.fs (line 2019)](/D:/Git/_Euclid_/Klip/Src/Engine.fs:2019)).
         // It then distinguishes a straight continuation from a U-turn: the normalized dot product is near +1 or −1, safely away from zero.
@@ -514,9 +582,23 @@ module internal Geo =
         else
             0
 
+    /// Non-inline entry point of `dotProductSign` for the JavaScript regression tests, which
+    /// import it from the Fable output (Fable emits no code for inline functions). Not used
+    /// by the engine.
+    let dotProductSignNonInline (pt1X: float, pt1Y: float, pt2X: float, pt2Y: float, pt3X: float, pt3Y: float) : int =
+        dotProductSign (pt1X, pt1Y, pt2X, pt2Y, pt3X, pt3Y)
+
     /// Absolute distance to the infinite line, without squaring coordinate magnitudes.
     /// Coincident line endpoints describe a zero-width spike for cleanup purposes.
-    let pointWithinLineDistance (tolerance: float) (ptX: float, ptY: float, ax: float, ay: float, bx: float, by: float) : bool =
+    ///
+    /// Fast path: the squared comparison `cross² <= tol² * |line|²` (one division-free
+    /// compare), trusted while `|line|²` is finite and the tolerance-scaled bound is a normal
+    /// float - the same range guard as `crossIsZero`. It agrees with the normalized form
+    /// below whenever nothing overflowed or underflowed, including exact incidence (a cross
+    /// product of exactly zero). Outside that range (extreme scales, tiny or zero tolerance,
+    /// coincident endpoints) fall back to the scale-free formulation. This runs per join
+    /// candidate in `checkJoinLeft/Right` and per colinear vertex in output cleanup.
+    let pointWithinLineDistanceScaleFree (tolerance: float) (ptX: float, ptY: float, ax: float, ay: float, bx: float, by: float) : bool =
         if crossProductSign (ax, ay, bx, by, ptX, ptY) = 0 then true
         elif tolerance = 0.0 then false
         else
@@ -526,6 +608,23 @@ module internal Geo =
             let ux = dx / scale
             let uy = dy / scale
             abs ((ptX - ax) * uy - (ptY - ay) * ux) <= tolerance * sqrt (ux * ux + uy * uy)
+
+    /// See `pointWithinLineDistanceScaleFree` for the formulation this fast path guards.
+    /// The point may lie arbitrarily far from the line, so unlike `crossIsZero` the cross
+    /// product is not bounded by the line length: an overflowed or NaN cross product (or a
+    /// right-hand side outside the normal range) defers to the scale-free version.
+    let pointWithinLineDistance (tolerance: float) (ptX: float, ptY: float, ax: float, ay: float, bx: float, by: float) : bool =
+        let dx = bx - ax
+        let dy = by - ay
+        let rhs = tolerance * tolerance * (dx * dx + dy * dy)
+        if rhs > 1e-280 && rhs < 1e280 then
+            let cross = (ptX - ax) * dy - (ptY - ay) * dx
+            let crossSq = cross * cross
+            if crossSq <= rhs then true
+            elif crossSq <= Double.MaxValue then false
+            else pointWithinLineDistanceScaleFree tolerance (ptX, ptY, ax, ay, bx, by)
+        else
+            pointWithinLineDistanceScaleFree tolerance (ptX, ptY, ax, ay, bx, by)
 
     /// Boundary proximity is an absolute distance, never an angle from an endpoint.
     /// Bound the segment in both axes (including endpoint coincidence), then check
