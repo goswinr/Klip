@@ -78,3 +78,31 @@ none is individually above the noise floor. Re-measure after fixing the three ab
    main. Also run the BenchmarkDotNet suite once to confirm the .NET side.
 
 Raw per-run JSON/logs from this bisect live only in the session scratchpad; this table is the record.
+
+## Outcome (same day)
+
+The incremental bisect over-attributed: applying steps 1-3 literally recovered only a third of the
+gap. A V8 CPU profile (`node --cpu-prof`, 20 000 unions of the fixture, main build vs dev build)
+found the real cost centres, which were then fixed on dev:
+
+| Cause (all in dev, none in main)                                                                                  | Fix |
+|-------------------------------------------------------------------------------------------------------------------|-----|
+| Every Rhino path ends with an explicit closing point equal to its first point, which counted as an "adjacent near duplicate", so `closedPathRepresentatives` ran Booth's rotation search on all 96 paths every union (~10% of runtime). | The gate ignores trailing exact copies of the first point, exactly as the algorithm itself does. |
+| `closedPathRepresentatives` pre-scan plus the separate finiteness pass in `AddPaths` read every coordinate twice, via `GetX`/`GetY` method calls, `%`, closures, and a Fable enumerator. | One indexed pass per path (`Geo.scanClosedPath`) validates finiteness and records a per-path near-duplicate flag; the vertex builder keeps main's direct loop when the flag is clear. |
+| `crossIsZero` / `dotProductSign` normalized every call (divisions, `sqrt`); `dotProductSign` lost `inline`.      | Main's single squared compare as the fast path behind a normal-range guard; normalized form only as fallback. `dotProductSign` is `inline` again (a non-inline entry point exists for the JS tests). |
+| `cleanColinear` called the new `pointWithinLineDistance` (division + `sqrt`) for every colinear vertex, before the U-turn sign test. | Sign test first (straight continuations short-circuit under `preserveColinear`); `pointWithinLineDistance` also got a guarded squared fast path. |
+| `isValidClosedPath` / `isVerySmallTriangle` were no longer `inline`.                                             | `inline` restored. |
+
+Result on this case (`npx vitest bench --run -t Rhino`, 3 reps, ms per bench op):
+
+| Build                    | Klip median | Klip best run | vs main |
+|--------------------------|------------:|--------------:|--------:|
+| main 9d41291             |       0.653 |         0.650 |      0% |
+| dev 1966a15              |       0.968 |         0.952 |    +48% |
+| dev + fixes              |       0.753 |         0.699 |  +15% / +7% |
+
+The CPU profile of the fixed build is ~8% above main in total self time; the remaining identifiable
+cost is the finiteness validation pass (a dev feature main lacks, ~1.5%) and the range-guard compares
+in the fast paths. The rest is spread in single-digit ms over unchanged functions, i.e. noise.
+The .NET side never regressed on the equivalent BenchmarkDotNet fixture (`Klip_Union_VeryLargeComplex`
+main 128.6 µs vs fixed 125.7 µs), so this was Fable/JS specific.
