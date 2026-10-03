@@ -17,7 +17,7 @@ rs.DisableRedraw()
 let input : ResizeArray<Polyline2D> =
     // rs.GetObjects "polygons"
     rs.GetObjectsAndRemember "select polygons"
-    // |>! Seq.iter (rs.HideObject >> ignore) 
+    // |>! Seq.iter (rs.HideObject >> ignore)
     |>  Seq.map rs.CoercePolyline
     |>  Seq.map Polyline2D.ofRhPolyline
     |>  ResizeArray
@@ -42,7 +42,7 @@ let printAsCode(ps:ResizeArray<Polyline2D> ) =
 
 let unionKlip(ps:Klip.Paths64<unit>) =
     let c = Clipper64(tolerance = 2.0)
-    c.ColinearityTolerance <- 0.1
+    // c.ColinearityTolerance <- 0.1
     c.AddPaths(Paths64.ensurePositiveOrientations ps, PathType.Subject)
     c.Execute(ClipType.Union, FillRule.NonZero) |> fst
 

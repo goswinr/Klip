@@ -1,5 +1,5 @@
 ﻿#r "C:/Program Files/Rhino 8/System/RhinoCommon.dll"
-#r "../../../bin/Release/netstandard2.0/Klip.dll"
+#r "D:/Git/_Euclid_/Klip/bin/Release/netstandard2.0/Klip.dll"
 #r "nuget: Rhino.Scripting.FSharp, 0.14.0"
 #r "nuget: Fesher, 0.5.0"
 #r "nuget: Euclid.Rhino,0.30.1"
@@ -129,6 +129,7 @@ let run(shift) =
         Printfn.red "ERROR empty path"
     else
         Printfn.red $"ERROR: {res.Count} paths, first has {res[0].PointCount} points, area ok: {areaOkK pathK res}"
+        draw $"{shift}" res
 
 for f = -9 to -1 do 
     let shift = 10.0 ** (float f)

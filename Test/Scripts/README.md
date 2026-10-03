@@ -29,6 +29,7 @@ dotnet build -c Release
 | `issue1083.fsx` | Repro of Clipper2 #1083: EvenOdd self-union of a ~310-vertex self-intersecting polygon. |
 | `issue1085.fsx` | Repro of Clipper2 #1085: union producing a zero-width bridge that a second union splits. |
 | `issue1091.fsx` | Draws the issue-1091 fixture and its union result. |
+| `union-pocket-pr35.fsx` | Repro of [clipper2-ts #35](https://github.com/countertype/clipper2-ts/pull/35) / [Clipper2 #1109](https://github.com/AngusJohnson/Clipper2/pull/1109): NonZero union of thin triangles filling a hole (a region in none of the inputs). Compares Klip against [Euclid.Kontur](https://github.com/goswinr/Euclid.Kontur) and Clipper2 (Paths64, PolyTree64, PathsD) with winding probes and outside/missing area measured by both Klip and Kontur. |
 | `bridge-repro.fsx` | Two contours sharing a near-horizontal seam edge (the "bridge" case), swept over shift/rotation/scale. |
 | `mergepoint-repro.fsx` | Single touching-union case where the merge point landed wrong, swept over shift magnitudes. |
 | `rhinoToJson.fsx` | Regenerates `data/polysXY.json` / `data/polysXYOrig.json` (wobbled + original) from the polylines in `data/union.3dm`. |

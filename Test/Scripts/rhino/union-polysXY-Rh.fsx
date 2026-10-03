@@ -3,7 +3,8 @@
 #r "nuget: Rhino.Scripting.FSharp"
 
 
-#r "../../../bin/Release/netstandard2.0/Klip.dll"
+// #r "../../../bin/Release/netstandard2.0/Klip.dll"
+#r "D:/Git/_Euclid_/Klip/bin/Release/netstandard2.0/Klip.dll"
 
 
 open System

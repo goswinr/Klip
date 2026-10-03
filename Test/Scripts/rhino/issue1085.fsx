@@ -76,8 +76,8 @@ let print (ps:ResizeArray<Polyline2D> ) =
 
 let unionKlip(ps:Klip.Paths64<unit>) =
     let c = Clipper64()
-    c.ColinearityTolerance <- 1e-4
-    c.MergeVertexTolerance <- 1.
+    // c.ColinearityTolerance <- 1e-4
+    // c.MergeVertexTolerance <- 1.
     c.AddPaths(ps, PathType.Subject) // no positve direction ensured here
     c.Execute(ClipType.Union, FillRule.NonZero) |> fst
 
